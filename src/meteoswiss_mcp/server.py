@@ -27,7 +27,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 import httpx
@@ -176,7 +176,7 @@ Synergien:
 # ---------------------------------------------------------------------------
 
 
-class ResponseFormat(str, Enum):
+class ResponseFormat(StrEnum):
     MARKDOWN = "markdown"
     JSON = "json"
 
