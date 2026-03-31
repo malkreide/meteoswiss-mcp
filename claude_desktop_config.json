@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "meteoswiss": {
+      "command": "python",
+      "args": ["-m", "meteoswiss_mcp.server"]
+    }
+  }
+}

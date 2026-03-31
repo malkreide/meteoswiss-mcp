@@ -27,7 +27,6 @@ from __future__ import annotations
 import csv
 import io
 import json
-import os
 from enum import Enum
 from typing import Any
 
@@ -1240,14 +1239,12 @@ async def get_wmo_codes_resource() -> str:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    port = int(os.environ.get("PORT", 8000))
-    transport = os.environ.get("MCP_TRANSPORT", "stdio")
-    if transport == "streamable_http":
-        mcp.run(transport="streamable_http", port=port)
+if __name__ == "__main__":
+    import sys
+
+    if "--http" in sys.argv:
+        port_idx = sys.argv.index("--port") + 1 if "--port" in sys.argv else None
+        port     = int(sys.argv[port_idx]) if port_idx else 8000
+        mcp.run(transport="streamable-http", port=port)
     else:
         mcp.run()
-
-
-if __name__ == "__main__":
-    main()

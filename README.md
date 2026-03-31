@@ -74,7 +74,7 @@ Wie war Luftqualität und Wetter beim Schulhaus Leutschenbach gestern?
 ### Cloud / Render.com (Streamable HTTP)
 
 ```bash
-MCP_TRANSPORT=streamable_http PORT=8000 uvx meteoswiss-mcp
+python -m meteoswiss_mcp.server --http --port 8000
 ```
 
 ---
@@ -186,7 +186,7 @@ PYTHONPATH=src pytest tests/ -m "not live" -v
 PYTHONPATH=src pytest tests/ -m live -v
 
 # Linting
-python -m ruff check src/ tests/
+ruff check src/ tests/
 ```
 
 ---
