@@ -16,6 +16,8 @@ Verbindet KI-Modelle mit dem SwissMetNet-Messnetz (160+ Stationen, 10-Minuten-In
 
 ## Demo-Abfrage (Anker-Beispiel)
 
+<img src="assets/demo.png" width="720" alt="Demo: Claude fragt nach Sporttag-Eignung → meteo_school_check Tool Call → strukturierte Wetterampel-Antwort">
+
 ```
 Wie geeignet ist nächster Mittwoch für den Sporttag beim Schulhaus Leutschenbach?
 ```
@@ -150,6 +152,19 @@ meteoswiss-mcp (FastMCP)
 | Open-Meteo (MeteoSwiss ICON) | `api.open-meteo.com/v1/meteoswiss` | CC BY 4.0 |
 | Open-Meteo Geocoding | `geocoding-api.open-meteo.com` | CC BY 4.0 |
 | opendata.swiss CKAN | `opendata.swiss/api/3/action` | CC BY 4.0 |
+
+---
+
+## Safety & Limits
+
+| Aspekt | Details |
+|--------|---------|
+| **Zugriff** | Nur-Lesen (`readOnlyHint: true` auf allen Tools) — der Server kann keine Daten verändern oder löschen |
+| **Personendaten** | Keine Personendaten — alle Quellen liefern aggregierte, öffentliche Open Data |
+| **Rate Limits** | Eingebaute Limits pro Abfrage: max. 50 Ergebnisse pro API-Call, 30 s Timeout |
+| **Authentifizierung** | Kein API-Key erforderlich — alle Datenquellen sind öffentlich zugänglich |
+| **Lizenzen** | Alle Daten unter CC BY 4.0 (MeteoSwiss Open Government Data) |
+| **Nutzungsbedingungen** | Es gelten die Nutzungsbedingungen der jeweiligen Datenquellen: [MeteoSwiss OGD](https://www.meteoswiss.admin.ch/services-and-publications/service/open-government-data.html), [Open-Meteo](https://open-meteo.com/en/terms), [opendata.swiss](https://opendata.swiss/de/terms-of-use) |
 
 ---
 
