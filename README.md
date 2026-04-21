@@ -29,6 +29,7 @@ Wie war Luftqualität und Wetter beim Schulhaus Leutschenbach gestern?
 ```
 
 → `meteo_current(station='REH')` + `env_nabel_current(station='ZUE')` = vollständiges Umweltbild.
+→ [More use cases by audience](EXAMPLES.md) →
 
 ---
 
