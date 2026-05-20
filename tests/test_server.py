@@ -238,6 +238,59 @@ async def test_meteo_warnings_markdown():
 
 
 # ---------------------------------------------------------------------------
+# Lifespan + respx-Mock-Tests (kein Netzwerk)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_lifespan_yields_appcontext():
+    from meteoswiss_mcp.server import AppContext, app_lifespan, mcp
+
+    async with app_lifespan(mcp) as appctx:
+        assert isinstance(appctx, AppContext)
+        assert appctx.http is not None
+        assert not appctx.http.is_closed
+    assert appctx.http.is_closed
+
+
+@pytest.mark.asyncio
+async def test_meteo_forecast_mocked_geocode_404():
+    """Geocoding-Fehler wird sanitisiert (kein roher Exception-String)."""
+    import respx
+
+    from meteoswiss_mcp.server import ForecastInput, meteo_forecast
+
+    with respx.mock(assert_all_called=False) as r:
+        r.get("https://geocoding-api.open-meteo.com/v1/search").respond(
+            500, json={"error": "internal"}
+        )
+        result = await meteo_forecast(ForecastInput(location="Unbekanntes Dorf"))
+
+    assert "Fehler beim Geokodieren" in result
+    # Kein roher httpx-Stacktrace im Output:
+    assert "Traceback" not in result
+    assert "geocoding-api.open-meteo.com" not in result
+
+
+@pytest.mark.asyncio
+async def test_meteo_school_check_mocked_geocode_empty():
+    """Leeres Geocoding-Ergebnis triggert ValueError, sanitisiert dargestellt."""
+    import respx
+
+    from meteoswiss_mcp.server import SchoolCheckInput, meteo_school_check
+
+    with respx.mock(assert_all_called=False) as r:
+        r.get("https://geocoding-api.open-meteo.com/v1/search").respond(
+            200, json={"results": []}
+        )
+        result = await meteo_school_check(
+            SchoolCheckInput(location="xyz", activity="Sporttag")
+        )
+
+    assert "Geokodieren" in result or "nicht gefunden" in result.lower()
+
+
+# ---------------------------------------------------------------------------
 # Live-Tests (mit echten APIs)
 # ---------------------------------------------------------------------------
 

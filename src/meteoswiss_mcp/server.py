@@ -27,11 +27,15 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ---------------------------------------------------------------------------
@@ -143,11 +147,66 @@ SCHOOL_THRESHOLDS: dict[str, Any] = {
 }
 
 # ---------------------------------------------------------------------------
+# Lifespan + HTTP-Client (PR-2: SDK-001, SDK-003, OBS-002)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AppContext:
+    """In Tools via `ctx.request_context.lifespan_context` verfügbar."""
+
+    http: httpx.AsyncClient
+
+
+@asynccontextmanager
+async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
+    """Erstellt einen wiederverwendeten httpx.AsyncClient für die Server-Lebenszeit.
+
+    follow_redirects=True ist nötig, weil BGDI-STAC-Asset-URLs auf Storage-
+    Buckets redirecten. Eine Egress-Allow-List wird in PR-1 (SEC-004/SEC-021)
+    ergänzt.
+    """
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as http:
+        yield AppContext(http=http)
+
+
+@asynccontextmanager
+async def _http_client(ctx: Context | None) -> AsyncIterator[httpx.AsyncClient]:
+    """Liefert den Lifespan-Client wenn `ctx` gesetzt ist, sonst einen transienten.
+
+    Der transiente Pfad existiert ausschliesslich für direkte Unit-Tests, die
+    Tools ohne FastMCP-Runtime aufrufen.
+    """
+    if ctx is not None:
+        try:
+            yield ctx.request_context.lifespan_context.http
+            return
+        except (AttributeError, LookupError):
+            pass
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        yield client
+
+
+def _sanitize_error(exc: BaseException) -> str:
+    """Reduziert eine Exception-Message auf Typ + erste Zeile, ohne URLs/Headers."""
+    raw = str(exc).splitlines()[0] if str(exc) else ""
+    # httpx schreibt typisch " for url '<url>'" hinten dran — entfernen
+    cleaned = re.sub(r"\s*for url\s+['\"]?\S+['\"]?", "", raw)
+    # Beliebige verbleibende URLs strippen (defense-in-depth)
+    cleaned = re.sub(r"https?://\S+", "<url>", cleaned)
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return exc.__class__.__name__
+    return f"{exc.__class__.__name__}: {cleaned[:120]}"
+
+
+# ---------------------------------------------------------------------------
 # Server-Initialisierung
 # ---------------------------------------------------------------------------
 
 mcp = FastMCP(
     "meteoswiss_mcp",
+    lifespan=app_lifespan,
     instructions="""
 MCP-Server für Schweizer Wetter- und Klimadaten von MeteoSwiss.
 Bietet Zugriff auf SwissMetNet-Beobachtungen (10-Minuten-Intervall),
@@ -360,28 +419,28 @@ def _school_verdict(
     return "🟢", "Geeignet für Aussenaktivitäten"
 
 
-async def _geocode(location: str) -> tuple[float, float, str]:
+async def _geocode(client: httpx.AsyncClient, location: str) -> tuple[float, float, str]:
     """Löst einen Ortsnamen in (lat, lon, display_name) auf."""
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            GEOCODING_BASE,
-            params={"name": location, "count": 1, "language": "de", "format": "json"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        results = data.get("results", [])
-        if not results:
-            raise ValueError(f"Ort '{location}' nicht gefunden.")
-        r = results[0]
-        display = r.get("name", location)
-        admin = r.get("admin1", "")
-        country = r.get("country_code", "")
-        if admin:
-            display = f"{display}, {admin} ({country})"
-        return float(r["latitude"]), float(r["longitude"]), display
+    resp = await client.get(
+        GEOCODING_BASE,
+        params={"name": location, "count": 1, "language": "de", "format": "json"},
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    results = data.get("results", [])
+    if not results:
+        raise ValueError(f"Ort '{location}' nicht gefunden.")
+    r = results[0]
+    display = r.get("name", location)
+    admin = r.get("admin1", "")
+    country = r.get("country_code", "")
+    if admin:
+        display = f"{display}, {admin} ({country})"
+    return float(r["latitude"]), float(r["longitude"]), display
 
 
 async def _fetch_open_meteo_forecast(
+    client: httpx.AsyncClient,
     lat: float,
     lon: float,
     days: int,
@@ -413,13 +472,14 @@ async def _fetch_open_meteo_forecast(
             "temperature_2m,precipitation,windspeed_10m,weathercode,"
             "cloudcover,uv_index,relative_humidity_2m"
         )
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        resp = await client.get(OPEN_METEO_BASE, params=params)
-        resp.raise_for_status()
-        return resp.json()
+    resp = await client.get(OPEN_METEO_BASE, params=params)
+    resp.raise_for_status()
+    return resp.json()
 
 
-async def _fetch_stac_now_csv(station: str) -> list[dict[str, str]]:
+async def _fetch_stac_now_csv(
+    client: httpx.AsyncClient, station: str
+) -> list[dict[str, str]]:
     """
     Lädt die neueste 10-Minuten-CSV einer SMN-Station via STAC API.
     Gibt die letzten Zeilen als Liste von Dictionaries zurück.
@@ -430,10 +490,9 @@ async def _fetch_stac_now_csv(station: str) -> list[dict[str, str]]:
         f"{STAC_BASE}/collections/{SMN_COLLECTION}/items/"
         f"ch.meteoschweiz.ogd-smn-{station_lower}"
     )
-    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-        resp = await client.get(stac_item_url)
-        resp.raise_for_status()
-        item = resp.json()
+    resp = await client.get(stac_item_url)
+    resp.raise_for_status()
+    item = resp.json()
 
     # Asset-URL für die "now"-Datei finden (10-Minuten-Werte, neueste)
     assets = item.get("assets", {})
@@ -457,10 +516,9 @@ async def _fetch_stac_now_csv(station: str) -> list[dict[str, str]]:
     if not now_url:
         raise ValueError(f"Kein CSV-Asset für Station '{station}' in STAC gefunden.")
 
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        resp = await client.get(now_url)
-        resp.raise_for_status()
-        content = resp.text
+    resp = await client.get(now_url)
+    resp.raise_for_status()
+    content = resp.text
 
     # CSV parsen (MeteoSwiss nutzt Semikolon als Trennzeichen)
     lines = content.strip().splitlines()
@@ -618,7 +676,7 @@ async def meteo_stations(params: StationsInput) -> str:
         "openWorldHint": True,
     },
 )
-async def meteo_current(params: CurrentInput) -> str:
+async def meteo_current(params: CurrentInput, ctx: Context | None = None) -> str:
     """
     Ruft aktuelle Wettermesswerte einer SwissMetNet-Station ab (10-Minuten-Granularität).
 
@@ -652,14 +710,19 @@ async def meteo_current(params: CurrentInput) -> str:
         )
 
     try:
-        rows = await _fetch_stac_now_csv(code)
+        if ctx is not None:
+            await ctx.info(f"Lade STAC-Item für Station {code}")
+        async with _http_client(ctx) as client:
+            rows = await _fetch_stac_now_csv(client, code)
     except Exception as exc:
+        if ctx is not None:
+            await ctx.warning(f"STAC-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
         stac_url = (
             f"https://data.geo.admin.ch/api/stac/v1/collections/{SMN_COLLECTION}/items/"
             f"ch.meteoschweiz.ogd-smn-{code.lower()}"
         )
         return (
-            f"⚠️ Live-Daten für Station {code} nicht abrufbar: {exc}\n\n"
+            f"⚠️ Live-Daten für Station {code} nicht abrufbar: {_sanitize_error(exc)}\n\n"
             f"**Station:** {station_info['name']} ({code})\n"
             f"**STAC-Item:** {stac_url}\n"
             f"**MeteoSwiss Explorer:** https://www.meteoswiss.admin.ch/local-forecasts/regions/"
@@ -712,7 +775,7 @@ async def meteo_current(params: CurrentInput) -> str:
         "openWorldHint": True,
     },
 )
-async def meteo_forecast(params: ForecastInput) -> str:
+async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> str:
     """
     Ruft eine Wetterprognose auf Basis des MeteoSwiss ICON-CH1/CH2-EPS-Modells ab.
 
@@ -737,31 +800,40 @@ async def meteo_forecast(params: ForecastInput) -> str:
     Returns:
         str: Tages- (und optional Stunden-)Prognose mit Wettercode und Planung.
     """
-    # Koordinaten bestimmen
-    if params.latitude is not None and params.longitude is not None:
-        lat, lon = params.latitude, params.longitude
-        display_name = f"{lat:.4f}° N, {lon:.4f}° E"
-    elif params.location:
-        try:
-            lat, lon, display_name = await _geocode(params.location)
-        except Exception as exc:
-            return (
-                f"Fehler beim Geokodieren von '{params.location}': {exc}\n"
-                "Tipp: Verwende lat/lon direkt, z.B. lat=47.3769, lon=8.5417 für Zürich."
-            )
-    else:
-        # Fallback: Zürich
-        lat, lon, display_name = 47.3769, 8.5417, "Zürich"
+    async with _http_client(ctx) as client:
+        # Koordinaten bestimmen
+        if params.latitude is not None and params.longitude is not None:
+            lat, lon = params.latitude, params.longitude
+            display_name = f"{lat:.4f}° N, {lon:.4f}° E"
+        elif params.location:
+            if ctx is not None:
+                await ctx.info(f"Geokodiere '{params.location}'")
+            try:
+                lat, lon, display_name = await _geocode(client, params.location)
+            except Exception as exc:
+                return (
+                    f"Fehler beim Geokodieren von '{params.location}': {_sanitize_error(exc)}\n"
+                    "Tipp: Verwende lat/lon direkt, z.B. lat=47.3769, lon=8.5417 für Zürich."
+                )
+        else:
+            # Fallback: Zürich
+            lat, lon, display_name = 47.3769, 8.5417, "Zürich"
 
-    try:
-        data = await _fetch_open_meteo_forecast(lat, lon, params.days, params.hourly)
-    except Exception as exc:
-        return (
-            f"⚠️ Prognosedaten nicht abrufbar: {exc}\n\n"
-            "**Direktzugang MeteoSwiss:**\n"
-            "- https://www.meteoswiss.admin.ch/local-forecasts.html\n"
-            "- https://www.meteoswiss.admin.ch/weather/forecasts/local-forecasts.html"
-        )
+        if ctx is not None:
+            await ctx.info(f"Lade Prognose für {display_name}")
+        try:
+            data = await _fetch_open_meteo_forecast(
+                client, lat, lon, params.days, params.hourly
+            )
+        except Exception as exc:
+            if ctx is not None:
+                await ctx.warning(f"Forecast-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
+            return (
+                f"⚠️ Prognosedaten nicht abrufbar: {_sanitize_error(exc)}\n\n"
+                "**Direktzugang MeteoSwiss:**\n"
+                "- https://www.meteoswiss.admin.ch/local-forecasts.html\n"
+                "- https://www.meteoswiss.admin.ch/weather/forecasts/local-forecasts.html"
+            )
 
     if params.response_format == ResponseFormat.JSON:
         return json.dumps(
@@ -864,7 +936,9 @@ async def meteo_forecast(params: ForecastInput) -> str:
         "openWorldHint": True,
     },
 )
-async def meteo_school_check(params: SchoolCheckInput) -> str:
+async def meteo_school_check(
+    params: SchoolCheckInput, ctx: Context | None = None
+) -> str:
     """
     Bewertet das Wetter auf Eignung für Schulveranstaltungen im Freien.
 
@@ -893,15 +967,25 @@ async def meteo_school_check(params: SchoolCheckInput) -> str:
     Returns:
         str: Ampel-Bewertung für die nächsten 7 Tage (oder Einzeltag).
     """
-    try:
-        lat, lon, display_name = await _geocode(params.location)
-    except Exception as exc:
-        return f"Fehler beim Geokodieren von '{params.location}': {exc}"
+    async with _http_client(ctx) as client:
+        if ctx is not None:
+            await ctx.info(f"Geokodiere '{params.location}'")
+        try:
+            lat, lon, display_name = await _geocode(client, params.location)
+        except Exception as exc:
+            return (
+                f"Fehler beim Geokodieren von '{params.location}': "
+                f"{_sanitize_error(exc)}"
+            )
 
-    try:
-        data = await _fetch_open_meteo_forecast(lat, lon, 7, hourly=False)
-    except Exception as exc:
-        return f"⚠️ Prognosedaten nicht abrufbar: {exc}"
+        if ctx is not None:
+            await ctx.info(f"Lade 7-Tage-Forecast für {display_name}")
+        try:
+            data = await _fetch_open_meteo_forecast(
+                client, lat, lon, 7, hourly=False
+            )
+        except Exception as exc:
+            return f"⚠️ Prognosedaten nicht abrufbar: {_sanitize_error(exc)}"
 
     daily = data.get("daily", {})
     dates = daily.get("time", [])
@@ -1086,7 +1170,7 @@ async def meteo_climate_normals(params: ClimateNormalsInput) -> str:
         "openWorldHint": True,
     },
 )
-async def meteo_warnings(params: WarningsInput) -> str:
+async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> str:
     """
     Ruft aktuelle Wetterwarnungen von MeteoSwiss ab.
 
@@ -1113,12 +1197,14 @@ async def meteo_warnings(params: WarningsInput) -> str:
     cap_url = "https://opendata.swiss/api/3/action/package_search?q=meteoschweiz+warnungen&rows=5"
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with _http_client(ctx) as client:
             resp = await client.get(cap_url)
             resp.raise_for_status()
             data = resp.json()
         datasets = data.get("result", {}).get("results", [])
-    except Exception:
+    except Exception as exc:
+        if ctx is not None:
+            await ctx.warning(f"opendata.swiss-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
         datasets = []
 
     canton_filter = params.canton.upper() if params.canton else ""
