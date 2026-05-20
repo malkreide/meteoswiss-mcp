@@ -1,0 +1,103 @@
+=== ARCH-001 ===
+status: pass
+title: Tool Naming Convention
+evidence:
+- src/meteoswiss_mcp/server.py:539,612,706,858,978,1080 — name="meteo_*" alle snake_case
+notes: Einheitliches snake_case; keine Sonderzeichen.
+
+=== ARCH-002 ===
+status: partial
+title: Tool-Beschreibung mit Use-Case-Tags
+evidence:
+- src/meteoswiss_mcp/server.py:549-568,622-641,716-738 — ausführliche Descriptions mit Beispielen
+- grep "<use_case>|<important_notes>|<example>" in src/ → 0 Treffer
+gaps:
+- Keine XML-Tags; Use-Case in Prosa eingebettet
+notes: Descriptions reich, aber ohne strukturierte Tag-Konvention.
+
+=== ARCH-003 ===
+status: partial
+title: «Not Found» Anti-Pattern: Heuristiken statt leerer Antworten
+evidence:
+- src/meteoswiss_mcp/server.py:645-652,1012-1026 — actionable Fehlermeldungen mit Liste
+- src/meteoswiss_mcp/server.py:373-374 — _geocode wirft ValueError, kein Fuzzy-Fallback
+gaps:
+- Geocoding kein Fuzzy-Fallback
+- Kein einheitliches match_type-Feld
+notes: Fehlerpfade actionable, aber ohne strukturiertes Schema.
+
+=== ARCH-004 ===
+status: pass
+title: Inversion of Control: Transport-agnostische Server-Logik
+evidence:
+- src/meteoswiss_mcp/server.py:1242-1250 — Dual-Transport via CLI-Flag
+- Tool-Handler nur Pydantic-Inputs (kein request/stdin/stdout)
+notes: Tool-Logik transport-agnostisch.
+
+=== ARCH-005 ===
+status: pass
+title: Keine Hardcoded Secrets
+evidence:
+- grep "api_key|password|secret|token" in src/ → 0 Treffer
+- .gitignore enthält .env
+notes: Server nutzt nur Open-Data-APIs ohne Auth.
+
+=== ARCH-006 ===
+status: pass
+title: Tool-Budget: High-Level-Use-Cases statt API-Mapping 1:1
+evidence:
+- 6 @mcp.tool — unter Schwellwert ≤8
+- meteo_school_check aggregiert Geocoding+Forecast+Bewertung
+notes: 6 Tools in 3 Use-Case-Clustern.
+
+=== ARCH-007 ===
+status: partial
+title: Capability-Aggregation: Composability intern, Atomarität extern
+evidence:
+- meteo_school_check atomar
+- _fetch_stac_now_csv sequentielle HTTP-Calls
+- grep "asyncio.gather" → 0 Treffer
+gaps:
+- Aggregationen sequentiell statt parallel
+notes: Atomarität extern OK; Parallelisierung intern fehlt.
+
+=== ARCH-008 ===
+status: pass
+title: Drei Primitive nutzen: Tools, Resources und Prompts
+evidence:
+- src/meteoswiss_mcp/server.py:1192,1207,1227 — 3 @mcp.resource() mit meteo://* URI
+notes: Tools + Resources mit konsistentem URI-Schema; Prompts fehlen (akzeptabel).
+
+=== ARCH-009 ===
+status: partial
+title: Tool Annotations explizit setzen
+evidence:
+- Alle 6 Tools vollständige Annotations-Blöcke
+- meteo_current: idempotentHint=False, openWorldHint=True (semantisch korrekt)
+gaps:
+- Keine Annotations-Übersichtstabelle im README
+notes: Annotations konsistent; nur Doku fehlt.
+
+=== ARCH-011 ===
+status: partial
+title: Standardisierte Repo-Struktur
+evidence:
+- README/CHANGELOG/LICENSE/pyproject.toml vorhanden, src-Layout korrekt
+- server.py 1250 Zeilen, alle 6 Tools + 3 Resources in einer Datei
+gaps:
+- Keine tools/-Verzeichnis-Aufteilung bei >5 Tools
+- server.py monolithisch
+notes: Standard-Files OK; monolithische server.py.
+
+=== ARCH-012 ===
+status: fail
+title: protocolVersion-Pinning + CHANGELOG + SDK-Update-Disziplin
+evidence:
+- FastMCP ohne protocol_version-Parameter
+- CHANGELOG nennt keine Spec-Version
+- Kein .github/dependabot.yml, kein renovate.json
+gaps:
+- protocolVersion nicht explizit gepinnt
+- README hat keine MCP-Protocol-Version-Sektion / Update-Policy
+- Kein Dependabot/Renovate
+notes: Nur CHANGELOG-Format ist erfüllt.

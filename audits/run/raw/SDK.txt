@@ -1,0 +1,51 @@
+=== SDK-001 ===
+status: fail
+title: FastMCP Lifespan via @asynccontextmanager + AsyncExitStack
+evidence:
+- src/meteoswiss_mcp/server.py:149 — FastMCP("meteoswiss_mcp", ...) ohne lifespan=
+- src/meteoswiss_mcp/server.py:365 — _geocode() erstellt httpx.AsyncClient pro Call
+- src/meteoswiss_mcp/server.py:433,460 — _fetch_stac_now_csv() erstellt zwei httpx.AsyncClient-Instanzen pro Call
+- src/meteoswiss_mcp/server.py:416 — _fetch_open_meteo_forecast() erstellt httpx.AsyncClient pro Call
+- src/meteoswiss_mcp/server.py:1116 — meteo_warnings erstellt httpx.AsyncClient pro Call
+gaps:
+- Keine @asynccontextmanager-Lifespan-Funktion, kein lifespan=-Argument
+- Kein wiederverwendeter httpx.AsyncClient (Connection-Pool entfällt)
+notes: Anti-Pattern «httpx-Client pro Call neu erstellt» — Connection-Pooling fehlt.
+
+=== SDK-002 ===
+status: partial
+title: Pydantic v2 / TypedDict / Dataclass als Tool-Returns
+evidence:
+- pyproject.toml:35 — "pydantic>=2.0.0"
+- src/meteoswiss_mcp/server.py:184-312 — Pydantic-v2-Eingabe-Models (extra="forbid")
+- src/meteoswiss_mcp/server.py:548,621,715,867,987,1089 — Alle Tools `-> str`
+gaps:
+- Alle 6 Tools geben str (Markdown/JSON-String) zurück statt strukturierter BaseModel/TypedDict
+- Kein Output-Schema im tools/list-Manifest
+- Kein konsistenter Envelope (source/provenance/results/count)
+notes: Inputs vorbildlich Pydantic v2; Returns sind plain str.
+
+=== SDK-003 ===
+status: fail
+title: Context Injection für Progress Reports und Logging
+evidence:
+- src/meteoswiss_mcp/server.py:34 — Import nur FastMCP, kein Context
+- src/meteoswiss_mcp/server.py:548,621,715,867,987,1089 — Keine ctx: Context-Parameter
+- src/meteoswiss_mcp/server.py:756,896-902,654 — Mehrstufige HTTP-Calls ohne Progress
+gaps:
+- Kein Tool nutzt Context-Injection
+- Keine Progress-Reports bei mehrstufigen HTTP-Operationen
+- Fehler werden als Return-String formatiert statt via ctx.warning/ctx.error
+notes: Context-Mechanismus komplett ungenutzt.
+
+=== SDK-004 ===
+status: fail
+title: CORS Mcp-Session-Id Exposure bei HTTP/SSE
+evidence:
+- src/meteoswiss_mcp/server.py:1248 — mcp.run(transport="streamable-http", port=port) ohne CORS-Konfig
+- src/meteoswiss_mcp/server.py:149-172 — FastMCP-Konstruktor nur name + instructions
+gaps:
+- Kein expose_headers=["Mcp-Session-Id"]
+- Kein allow_origins definiert
+- Browser-Clients können keine Sessions aufbauen
+notes: HTTP-Modus nicht browser-tauglich.

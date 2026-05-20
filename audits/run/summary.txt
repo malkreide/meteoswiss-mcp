@@ -1,0 +1,40 @@
+=== SEVERITY × STATUS ===
+critical    pass=2  partial=2  fail=3   total=7
+           fail    : SEC-004, SEC-009, SEC-016
+           partial : OBS-004, SEC-019
+           pass    : ARCH-005, SEC-020
+high        pass=3  partial=8  fail=8   total=19
+           fail    : OBS-001, SCALE-002, SCALE-003, SDK-001, SDK-004, SEC-005, SEC-007, SEC-021
+           partial : ARCH-009, OBS-002, OPS-001, OPS-003, SCALE-001, SEC-006, SEC-013, SEC-022
+           pass    : ARCH-004, ARCH-006, SEC-018
+medium      pass=4  partial=6  fail=8   total=18
+           fail    : ARCH-012, OBS-003, OBS-006, SCALE-004, SCALE-006, SDK-003, SEC-014, SEC-015
+           partial : ARCH-002, ARCH-003, ARCH-007, ARCH-011, CH-004, SDK-002
+           pass    : ARCH-001, ARCH-008, OPS-002, SEC-008
+
+TOTAL  pass=9  partial=16  fail=19  total=44
+
+BLOCKING (critical/high fail+partial):
+  critical  OBS-004      partial
+  critical  SEC-004      fail
+  critical  SEC-009      fail
+  critical  SEC-016      fail
+  critical  SEC-019      partial
+  high      ARCH-009     partial
+  high      OBS-001      fail
+  high      OBS-002      partial
+  high      OPS-001      partial
+  high      OPS-003      partial
+  high      SCALE-001    partial
+  high      SCALE-002    fail
+  high      SCALE-003    fail
+  high      SDK-001      fail
+  high      SDK-004      fail
+  high      SEC-005      fail
+  high      SEC-006      partial
+  high      SEC-007      fail
+  high      SEC-013      partial
+  high      SEC-021      fail
+  high      SEC-022      partial
+
+production_ready: False
