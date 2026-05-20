@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **OBS-003** Structured Logging via `structlog`: JSON-Events auf `stderr` (stdio-safe). Events: `tool_invoked`, `upstream_failed`, `egress_blocked`. Log-Level via `MCP_LOG_LEVEL`-ENV (default `INFO`).
+- **OBS-004** CI-Guard `ruff` + `grep -rnE '^\s*print\s*\(' src/` blockt regressionen mit `print()`-Calls in src/.
+- 3 neue respx/monkeypatch-basierte Tests verifizieren die Log-Events.
+
 ### Security
 
 - **SEC-004 / SEC-021** Egress-Allow-List: alle ausgehenden HTTP-Requests werden gegen eine frozenset-Allow-List validiert; Redirect-Follow-Targets ebenfalls. IP-Literale (insbesondere 169.254.169.254 + RFC1918) werden mit `EgressBlocked` abgelehnt.

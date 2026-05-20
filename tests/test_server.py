@@ -411,6 +411,126 @@ class TestTransportSettings:
 
 
 # ---------------------------------------------------------------------------
+# Structured Logging (PR-3: OBS-001, OBS-003, OBS-004)
+# ---------------------------------------------------------------------------
+
+
+class _FakeLogger:
+    """Minimal struct-log-kompatibel: sammelt Events für Assertions."""
+
+    def __init__(self):
+        self.events: list[tuple[str, str, dict]] = []
+
+    def info(self, event, **kw):
+        self.events.append(("info", event, kw))
+
+    def warning(self, event, **kw):
+        self.events.append(("warning", event, kw))
+
+    def error(self, event, **kw):
+        self.events.append(("error", event, kw))
+
+    def debug(self, event, **kw):
+        self.events.append(("debug", event, kw))
+
+
+@pytest.mark.asyncio
+async def test_meteo_stations_logs_tool_invoked(monkeypatch):
+    """Tool-Invocation erzeugt strukturiertes Event mit tool=Name."""
+    from meteoswiss_mcp import server
+
+    fake = _FakeLogger()
+    monkeypatch.setattr(server, "logger", fake)
+
+    await server.meteo_stations(server.StationsInput(canton="ZH"))
+
+    invoked = [e for e in fake.events if e[1] == "tool_invoked"]
+    assert invoked, fake.events
+    assert invoked[0][2].get("tool") == "meteo_stations"
+
+
+@pytest.mark.asyncio
+async def test_egress_block_emits_log(monkeypatch):
+    """Blockierter Egress erzeugt egress_blocked-Event mit URL + Reason."""
+    import httpx
+
+    from meteoswiss_mcp import server
+
+    fake = _FakeLogger()
+    monkeypatch.setattr(server, "logger", fake)
+
+    async with server.app_lifespan(server.mcp) as appctx:
+        with pytest.raises((server.EgressBlocked, httpx.RequestError)):
+            await appctx.http.get("https://evil.example.com/")
+
+    blocked = [e for e in fake.events if e[1] == "egress_blocked"]
+    assert blocked, fake.events
+    assert "evil.example.com" in blocked[0][2].get("url", "")
+    assert "allow-list" in blocked[0][2].get("reason", "")
+
+
+@pytest.mark.asyncio
+async def test_upstream_failure_logged(monkeypatch):
+    """Bei Upstream-5xx wird upstream_failed geloggt; User bekommt Markdown-Fallback."""
+    import respx
+
+    from meteoswiss_mcp import server
+
+    fake = _FakeLogger()
+    monkeypatch.setattr(server, "logger", fake)
+
+    with respx.mock(assert_all_called=False) as r:
+        r.get("https://geocoding-api.open-meteo.com/v1/search").respond(
+            503, json={"error": "unavailable"}
+        )
+        result = await server.meteo_forecast(server.ForecastInput(location="Zürich"))
+
+    failures = [e for e in fake.events if e[1] == "upstream_failed"]
+    assert failures, fake.events
+    assert failures[0][2].get("endpoint") == "geocoding"
+    assert failures[0][0] == "warning"
+    # User-Output: Markdown-Fallback, keine rohen URLs
+    assert "Geokodieren" in result
+    assert "geocoding-api.open-meteo.com" not in result
+
+
+def test_structlog_configured_for_stderr():
+    """stdio-Transport-Pflicht: structlog ist auf stderr konfiguriert, nicht stdout (OBS-004)."""
+    import sys as _sys
+
+    import structlog
+
+    # WriteLoggerFactory mit file=stderr ist die einzig sichere Konfiguration für
+    # stdio-Transport (stdout ist für MCP-Protokoll reserviert).
+    cfg = structlog.get_config()
+    factory = cfg["logger_factory"]
+    # Inspect: WriteLoggerFactory speichert file in self._file
+    file_target = getattr(factory, "_file", None)
+    assert file_target is _sys.stderr, (
+        f"structlog logger_factory schreibt nicht auf sys.stderr, sondern {file_target!r}"
+    )
+
+
+def test_no_print_calls_in_source():
+    """Regression-Guard: kein print() in src/ — stderr-Reinheit für stdio-Transport (OBS-004)."""
+    import pathlib
+    import re as _re
+
+    src = pathlib.Path(__file__).parent.parent / "src" / "meteoswiss_mcp"
+    for py in src.rglob("*.py"):
+        text = py.read_text()
+        # Naiv: print(...) am Zeilenanfang oder nach einem Statement-Trenner;
+        # Strings mit "print(" innerhalb von Docstrings/Beispielen würden mitfangen,
+        # deshalb auf Code-Zeilen (nicht eingerückt in Triple-Quotes) zielen.
+        offenders = [
+            (i + 1, line)
+            for i, line in enumerate(text.splitlines())
+            if _re.match(r"^\s*print\s*\(", line)
+        ]
+        assert not offenders, f"{py}: print() gefunden in {offenders}"
+
+
+# ---------------------------------------------------------------------------
 # Live-Tests (mit echten APIs)
 # ---------------------------------------------------------------------------
 

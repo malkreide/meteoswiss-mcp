@@ -28,6 +28,7 @@ import csv
 import io
 import ipaddress
 import json
+import logging
 import os
 import re
 import sys
@@ -39,8 +40,41 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+import structlog
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# ---------------------------------------------------------------------------
+# Structured Logging (PR-3: OBS-001, OBS-003, OBS-004)
+# ---------------------------------------------------------------------------
+#
+# Wichtig für stdio-Transport: alle Logs gehen auf stderr — stdout ist
+# ausschliesslich für das MCP-JSON-RPC-Protokoll reserviert. structlog wird
+# einmal modul-global konfiguriert (idempotent via cache_logger_on_first_use).
+
+_LOG_LEVEL = os.environ.get("MCP_LOG_LEVEL", "INFO").upper()
+
+logging.basicConfig(
+    level=getattr(logging, _LOG_LEVEL, logging.INFO),
+    stream=sys.stderr,
+    format="%(message)s",
+)
+
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.JSONRenderer(),
+    ],
+    wrapper_class=structlog.make_filtering_bound_logger(
+        getattr(logging, _LOG_LEVEL, logging.INFO)
+    ),
+    logger_factory=structlog.WriteLoggerFactory(file=sys.stderr),
+    cache_logger_on_first_use=True,
+)
+
+logger = structlog.get_logger("meteoswiss_mcp")
 
 # ---------------------------------------------------------------------------
 # Konstanten
@@ -204,7 +238,17 @@ def assert_safe_url(url: str) -> None:
 
 async def _validate_request_hook(request: httpx.Request) -> None:
     """httpx event_hook: validiert URL VOR jedem Request (inkl. Redirect-Follows)."""
-    assert_safe_url(str(request.url))
+    try:
+        assert_safe_url(str(request.url))
+    except EgressBlocked as exc:
+        # Security-relevantes Event — sichtbar im SIEM/Log
+        logger.warning(
+            "egress_blocked",
+            url=str(request.url),
+            method=request.method,
+            reason=str(exc),
+        )
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -695,6 +739,7 @@ async def meteo_stations(params: StationsInput) -> str:
     Returns:
         str: Stationsliste mit Kürzel, Name, Kanton, Koordinaten und Höhe.
     """
+    logger.info("tool_invoked", tool="meteo_stations", canton=params.canton or "all")
     filtered = {
         code: info
         for code, info in SMN_STATIONS.items()
@@ -770,8 +815,10 @@ async def meteo_current(params: CurrentInput, ctx: Context | None = None) -> str
     """
     code = params.station.upper()
     station_info = SMN_STATIONS.get(code)
+    logger.info("tool_invoked", tool="meteo_current", station=code)
 
     if not station_info:
+        logger.info("tool_input_invalid", tool="meteo_current", reason="unknown_station", station=code)
         known = ", ".join(sorted(SMN_STATIONS.keys()))
         return (
             f"Fehler: Station '{code}' nicht in der eingebetteten Liste.\n"
@@ -786,6 +833,13 @@ async def meteo_current(params: CurrentInput, ctx: Context | None = None) -> str
         async with _http_client(ctx) as client:
             rows = await _fetch_stac_now_csv(client, code)
     except Exception as exc:
+        logger.warning(
+            "upstream_failed",
+            tool="meteo_current",
+            endpoint="stac",
+            station=code,
+            error_type=exc.__class__.__name__,
+        )
         if ctx is not None:
             await ctx.warning(f"STAC-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
         stac_url = (
@@ -871,6 +925,7 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
     Returns:
         str: Tages- (und optional Stunden-)Prognose mit Wettercode und Planung.
     """
+    logger.info("tool_invoked", tool="meteo_forecast", days=params.days, has_coords=params.latitude is not None)
     async with _http_client(ctx) as client:
         # Koordinaten bestimmen
         if params.latitude is not None and params.longitude is not None:
@@ -882,6 +937,12 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
             try:
                 lat, lon, display_name = await _geocode(client, params.location)
             except Exception as exc:
+                logger.warning(
+                    "upstream_failed",
+                    tool="meteo_forecast",
+                    endpoint="geocoding",
+                    error_type=exc.__class__.__name__,
+                )
                 return (
                     f"Fehler beim Geokodieren von '{params.location}': {_sanitize_error(exc)}\n"
                     "Tipp: Verwende lat/lon direkt, z.B. lat=47.3769, lon=8.5417 für Zürich."
@@ -897,6 +958,12 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
                 client, lat, lon, params.days, params.hourly
             )
         except Exception as exc:
+            logger.warning(
+                "upstream_failed",
+                tool="meteo_forecast",
+                endpoint="open_meteo",
+                error_type=exc.__class__.__name__,
+            )
             if ctx is not None:
                 await ctx.warning(f"Forecast-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
             return (
@@ -1038,12 +1105,19 @@ async def meteo_school_check(
     Returns:
         str: Ampel-Bewertung für die nächsten 7 Tage (oder Einzeltag).
     """
+    logger.info("tool_invoked", tool="meteo_school_check", activity=params.activity)
     async with _http_client(ctx) as client:
         if ctx is not None:
             await ctx.info(f"Geokodiere '{params.location}'")
         try:
             lat, lon, display_name = await _geocode(client, params.location)
         except Exception as exc:
+            logger.warning(
+                "upstream_failed",
+                tool="meteo_school_check",
+                endpoint="geocoding",
+                error_type=exc.__class__.__name__,
+            )
             return (
                 f"Fehler beim Geokodieren von '{params.location}': "
                 f"{_sanitize_error(exc)}"
@@ -1056,6 +1130,12 @@ async def meteo_school_check(
                 client, lat, lon, 7, hourly=False
             )
         except Exception as exc:
+            logger.warning(
+                "upstream_failed",
+                tool="meteo_school_check",
+                endpoint="open_meteo",
+                error_type=exc.__class__.__name__,
+            )
             return f"⚠️ Prognosedaten nicht abrufbar: {_sanitize_error(exc)}"
 
     daily = data.get("daily", {})
@@ -1163,6 +1243,7 @@ async def meteo_climate_normals(params: ClimateNormalsInput) -> str:
     code = params.station.upper()
     station_info = SMN_STATIONS.get(code)
     normals = CLIMATE_NORMALS.get(code)
+    logger.info("tool_invoked", tool="meteo_climate_normals", station=code)
 
     if not station_info:
         known = ", ".join(sorted(SMN_STATIONS.keys()))
@@ -1264,6 +1345,7 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
     Returns:
         str: Links zu aktuellen MeteoSwiss-Warnungen und Warnkarte.
     """
+    logger.info("tool_invoked", tool="meteo_warnings", canton=params.canton or "all")
     # Versuche CAP-Feed zu lesen (MeteoSwiss Common Alerting Protocol)
     cap_url = "https://opendata.swiss/api/3/action/package_search?q=meteoschweiz+warnungen&rows=5"
 
@@ -1274,6 +1356,12 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
             data = resp.json()
         datasets = data.get("result", {}).get("results", [])
     except Exception as exc:
+        logger.warning(
+            "upstream_failed",
+            tool="meteo_warnings",
+            endpoint="opendata_swiss",
+            error_type=exc.__class__.__name__,
+        )
         if ctx is not None:
             await ctx.warning(f"opendata.swiss-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
         datasets = []
