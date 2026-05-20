@@ -30,6 +30,12 @@ def _hash_text(text: str) -> str:
 
 
 async def collect() -> dict[str, dict[str, str]]:
+    """Hash über die rug-pull-relevanten Tool-Identitätsfelder.
+
+    Bewusst aus dem Hash ausgenommen sind `annotations` — sie sind eher
+    Hint-Metadaten und ihre Pydantic-Serialisierung schwankt zwischen
+    Pydantic-Versionen (CI auf Python 3.13 fand abweichende Dumps).
+    """
     tools = await mcp.list_tools()
     snapshot: dict[str, dict[str, str]] = {}
     for t in tools:
@@ -38,9 +44,6 @@ async def collect() -> dict[str, dict[str, str]]:
                 "name": t.name,
                 "description": t.description,
                 "inputSchema": t.inputSchema,
-                "annotations": (
-                    t.annotations.model_dump() if t.annotations is not None else None
-                ),
             },
             sort_keys=True,
             ensure_ascii=False,

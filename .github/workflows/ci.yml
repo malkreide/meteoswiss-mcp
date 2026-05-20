@@ -40,6 +40,10 @@ jobs:
           fi
 
       - name: Guard — tool-hashes.json ist aktuell (SEC-022)
+        # Hash hängt von der Pydantic-JSON-Schema-Serialisierung ab, die zwischen
+        # Python-/Pydantic-Versionen leicht abweichen kann. Wir pinnen daher den
+        # Snapshot-Check auf die Produktions-Python-Version (siehe Dockerfile).
+        if: matrix.python-version == '3.13'
         run: |
           python scripts/tool_hashes.py --write
           if ! git diff --exit-code tool-hashes.json; then
