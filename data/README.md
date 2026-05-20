@@ -35,17 +35,46 @@ JSON mit Klimanormwerten 1991–2020, geladen via `MCP_CLIMATE_NORMALS_PATH`. Me
 - opendata.swiss-Suche: <https://opendata.swiss/de/dataset?q=meteoschweiz+klimanormwerte+1991>
 - Üblicher CSV-Download über die Detailseite des Datensatzes («Ressourcen» → CSV-Link)
 
-### Workflow
+### Workflow (offizielle MeteoSwiss-TSV-Dumps)
 
-1. CSV von MeteoSwiss runterladen, z.B. `klimanormwerte_1991-2020.csv` (Wide-Format, Semikolon-Trenner, Parameter pro Zeile).
-2. `python scripts/ingest_climate_normals.py <pfad-zur-csv> --out data/climate-normals.json`
-   - Parser akzeptiert die typische Wide-Form: `Station;Parameter;Jan;…;Dez;Jahr`
-   - Konvertiert MeteoSwiss-Parameter-Codes: `tre200m0`→`temp_mean`, `rre150m0`→`precip_mm`, `sre000m0`→`sunshine_h`
-   - Andere Parameter (Druck, Feuchte, Wind) werden ignoriert
-3. Validierung: `python scripts/ingest_climate_normals.py --validate data/climate-normals.json`
-   - Plausibilitäts-Ranges (z.B. Temperatur −25…+28 °C)
+MeteoSwiss publiziert die Klimanormwerte als ZIP-Archiv mit ~100 TSV-Files (ein File pro Parameter × Periode × Sprache, Pattern `climatereportsnormtables_<param>_<period>_<lang>.txt`). Das Skript scannt das ganze Verzeichnis und pickt automatisch nur die relevanten Files raus.
+
+1. ZIP runterladen, irgendwo entpacken (z.B. `~/Downloads/klimanormwerte/`).
+2. Verzeichnis-Scan:
+
+   ```bash
+   python scripts/ingest_climate_normals.py \
+       --dir ~/Downloads/klimanormwerte \
+       --out data/climate-normals.json
+   ```
+
+   Defaults: Periode `19912020`, Sprache `de`, nur Parameter `tre200m0` (Temperatur) / `rre150m0` (Niederschlag) / `sre000m0` (Sonnenschein). Andere Files werden ohne Warnung übersprungen.
+
+3. Validierung:
+
+   ```bash
+   python scripts/ingest_climate_normals.py --validate data/climate-normals.json
+   ```
+
+   - Plausibilitäts-Ranges (Temp −25…+30 °C, Niederschlag 0…800 mm, Sonnenschein 10…400 h)
    - Cross-Station-Sanity (Lugano > Davos im Jahresmittel)
-4. Lokal testen: `MCP_CLIMATE_NORMALS_PATH=data/climate-normals.json meteoswiss-mcp` → die zusätzlichen Stationen sind in `meteo_climate_normals` verfügbar.
+
+4. Lokal testen:
+
+   ```bash
+   MCP_CLIMATE_NORMALS_PATH=data/climate-normals.json meteoswiss-mcp
+   ```
+
+### Station-Mapping
+
+Die MeteoSwiss-TSV listet Stationen mit Klartextnamen (`Zürich / Kloten`), unsere Tool-Schnittstelle nutzt 3-Buchstaben-Codes (`KLO`). Mapping liegt in `scripts/ingest_climate_normals.py` als `STATION_NAME_TO_CODE`. Stationen ausserhalb des Mappings werden geloggt und übersprungen — falls eine davon zukünftig im Server-Code (`SMN_STATIONS`) erscheinen soll, Mapping ergänzen.
+
+### Single-File-Modus (für custom CSVs)
+
+```bash
+python scripts/ingest_climate_normals.py <datei.csv> --param tre200m0 \
+    --out data/climate-normals.json --merge
+```
 
 ### Wenn dein CSV anders aussieht
 
