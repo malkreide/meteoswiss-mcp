@@ -112,6 +112,9 @@ Konfiguration via ENV-Variablen (CLI-Flags `--http` / `--port N` funktionieren w
 | `MCP_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` — strukturierte JSON-Logs auf stderr |
 | `MCP_ALLOWED_ORIGINS` | _unset_ | Komma-separierte Liste erlaubter Origins für CORS. Leer = CORS deaktiviert (same-origin only). `Mcp-Session-Id` wird automatisch exposed. |
 | `MCP_API_KEY` | _unset_ | Wenn gesetzt: alle Requests ausser `/health` brauchen `X-API-Key: <key>` oder `Authorization: Bearer <key>`. Constant-time-Vergleich. |
+| `MCP_STATELESS_HTTP` | `0` | `1` aktiviert FastMCP-Stateless-Mode → jeder HTTP-Request öffnet eine neue Session. Voraussetzung für Multi-Replica-Deploys ohne Sticky-Sessions (SCALE-002/003). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | _unset_ | Wenn gesetzt + `pip install meteoswiss-mcp[otel]`: OpenTelemetry-Spans pro Tool-Call + automatische httpx-Instrumentierung gehen als OTLP-HTTP an den Collector. |
+| `OTEL_SERVICE_NAME` | `meteoswiss_mcp` | Service-Name in den OTel-Resources |
 
 ```bash
 # Lokaler Test (sicher, nur loopback)

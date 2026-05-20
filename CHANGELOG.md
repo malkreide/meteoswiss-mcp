@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **OBS-006** Optionale OpenTelemetry-Tracing: pro Tool-Call ein Span (`tool.<name>` mit `mcp.tool.name` / `mcp.tool.result.is_error`), automatische httpx-Instrumentierung. Aktiv via `OTEL_EXPORTER_OTLP_ENDPOINT` + `pip install meteoswiss-mcp[otel]`. Ohne ENV: No-Op-Stub, kein Performance-Overhead.
+- **SCALE-002 / SCALE-003** Optionaler FastMCP-Stateless-Mode via `MCP_STATELESS_HTTP=1` — erlaubt Multi-Replica-Deploys ohne Sticky-Session-Routing.
+- **ARCH-003** Fuzzy-Fallback im Geokoding: bei leerer DE-Suche zweiter Versuch ohne language-Restriktion + count=5. `_geocode` gibt `match_type` ("exact" / "fuzzy") als viertes Tuple-Element zurück.
+- **ARCH-002** Tool-Beschreibungen strukturiert mit `<use_case>` / `<important_notes>` / `<example>` XML-Tags — bessere LLM-Lesbarkeit (folgt Anthropic-Prompt-Engineering-Konvention). Static-Test im CI guard's the Konvention.
+
+### Changed
+
+- Stateless-Mode + neue Docstrings führen zu geänderten Tool-Hashes — `tool-hashes.json` aktualisiert.
+
+### Added (PR-6)
+
 - **CH-004 / SDK-002** OGD-Provenance-Envelope für alle JSON-Tool-Outputs: `payload` + `provenance` (`source`, `license=CC BY 4.0`, `attribution=MeteoSchweiz`, `retrieved_at`, `data_source_url`). Markdown-Outputs unverändert.
 - **ARCH-012** Dependabot-Konfiguration für `pip`, `github-actions` und `docker`. README enthält jetzt eine «MCP Protocol Version»-Sektion mit Update-Policy.
 - **ARCH-009** README-Annotations-Tabelle mit `readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint` pro Tool.
