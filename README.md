@@ -85,6 +85,8 @@ Konfiguration via ENV-Variablen (CLI-Flags `--http` / `--port N` funktionieren w
 | `MCP_PORT` | `8000` | Port |
 | `MCP_ALLOW_ANY_HOST` | _unset_ | Muss auf `1` gesetzt sein, damit der Server an `0.0.0.0` binden darf (nur in Container/Cloud) |
 | `MCP_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` — strukturierte JSON-Logs auf stderr |
+| `MCP_ALLOWED_ORIGINS` | _unset_ | Komma-separierte Liste erlaubter Origins für CORS. Leer = CORS deaktiviert (same-origin only). `Mcp-Session-Id` wird automatisch exposed. |
+| `MCP_API_KEY` | _unset_ | Wenn gesetzt: alle Requests ausser `/health` brauchen `X-API-Key: <key>` oder `Authorization: Bearer <key>`. Constant-time-Vergleich. |
 
 ```bash
 # Lokaler Test (sicher, nur loopback)
@@ -123,7 +125,22 @@ Alle Tool-Invocations, Upstream-Failures und Egress-Blocks werden als JSON-Event
 
 - `MCP_HOST` defaultet bewusst auf `127.0.0.1`, damit `--http` auf dem Dev-Laptop nicht versehentlich ins lokale Subnetz exponiert ist (Audit-Finding SEC-016).
 - Alle ausgehenden HTTP-Calls (auch Redirect-Follows) werden gegen eine Allow-List validiert: `data.geo.admin.ch`, `api.open-meteo.com`, `geocoding-api.open-meteo.com`, `opendata.swiss`. Andere Hosts und IP-Literale (insb. `169.254.169.254`, RFC1918) werden mit `EgressBlocked` abgelehnt (SEC-004 / SEC-021).
-- Im HTTP-Modus existiert (noch) **keine Auth-Schicht**. Wer den Server öffentlich erreichbar betreiben will, sollte ihn hinter einen Reverse-Proxy mit API-Key / OAuth-Proxy setzen.
+- **CORS**: per Default deaktiviert (same-origin only). Browser-Clients (z.B. claude.ai Web) brauchen `MCP_ALLOWED_ORIGINS=<csv>` — der `Mcp-Session-Id`-Header ist dann automatisch in `Access-Control-Expose-Headers` (SDK-004).
+- **API-Key-Auth**: per Default deaktiviert. Im produktiven HTTP-Setup unbedingt `MCP_API_KEY=<random>` setzen — Requests ohne gültigen `X-API-Key` oder `Authorization: Bearer …` werden mit 401 abgelehnt (SEC-009 / SEC-013). `/health` bleibt für Container-Health-Probes offen.
+
+#### Beispiel: produktiver HTTP-Stack
+
+```bash
+# 32 Bytes Zufall als Auth-Key
+export MCP_API_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+
+MCP_TRANSPORT=streamable-http \
+MCP_HOST=0.0.0.0 \
+MCP_ALLOW_ANY_HOST=1 \
+MCP_ALLOWED_ORIGINS=https://app.example.com \
+MCP_API_KEY="$MCP_API_KEY" \
+meteoswiss-mcp
+```
 
 ---
 
