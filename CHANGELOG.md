@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (PR-13 — Climate-Normals-Ingest)
+
+- `scripts/ingest_climate_normals.py`: parst MeteoSwiss-Wide-Format-CSV (`Station;Parameter;Jan;…;Dez;Jahr`) und schreibt das `data/climate-normals.json`-Format. Filtert relevante Parameter (`tre200m0`/`rre150m0`/`sre000m0`), ignoriert andere. Plausibilitäts-Validierung mit Cross-Station-Checks (Lugano > Davos etc.). `--merge`-Modus für inkrementelle Ergänzungen.
+- `data/README.md`: Stations-Übersicht (5 eingebettet, 15 noch ausstehend) + Schritt-für-Schritt-Workflow für den Datenimport + Quellen-URLs.
+
 ### Added (Phase 2 — Caching + Data Extension)
 
 - **TTL-Cache** für alle Upstream-Calls (STAC / Open-Meteo / Geocoding / opendata.swiss / Warnings-API). asyncio-safe via Per-Key-Locks (verhindert Thundering-Herd). Per-Endpoint-TTLs via ENV (`MCP_CACHE_TTL_*`), default 5 min für Live-Daten, 1 h für Stammdaten. Deaktivierbar via `MCP_CACHE_ENABLED=0`.
