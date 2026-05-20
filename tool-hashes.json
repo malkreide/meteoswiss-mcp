@@ -1,0 +1,29 @@
+{
+  "namespace": "meteoswiss_mcp",
+  "tools": {
+    "meteo_stations": {
+      "hash": "sha256:b0b1bc691a1bc535f313579144a86aa5bfd40553bd5a79f9ba4c045916156dff",
+      "title": "SwissMetNet-Stationen auflisten"
+    },
+    "meteo_current": {
+      "hash": "sha256:63bd4e3e687cea002d5b36c6c5be8f2bce574ce6ee8ff3b1456e302df72db118",
+      "title": "Aktuelle SwissMetNet-Beobachtungen"
+    },
+    "meteo_forecast": {
+      "hash": "sha256:5f73c1e774d1e3cda7f4ccc36ecbdfcc1e5475be9559bd55d28293d16942318b",
+      "title": "Wetterprognose (MeteoSwiss ICON-Modell)"
+    },
+    "meteo_school_check": {
+      "hash": "sha256:2bf57edac712ed1f54389a99e944c2a977d27c3801b000ac08f6921713eafcfa",
+      "title": "Wettereignung für Schulveranstaltungen prüfen"
+    },
+    "meteo_climate_normals": {
+      "hash": "sha256:91beba5c8732fc67ebdc2fa4e22c92be4aac40482313b41ddc057573df252c0f",
+      "title": "Klimanormwerte einer SMN-Station"
+    },
+    "meteo_warnings": {
+      "hash": "sha256:bddb5298744d598c6737381f4380f2fbf628b91e0f326e912cfec30baa234ca0",
+      "title": "Aktuelle MeteoSwiss-Wetterwarnungen"
+    }
+  }
+}

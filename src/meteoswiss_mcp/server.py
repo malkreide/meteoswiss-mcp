@@ -346,6 +346,46 @@ Synergien:
 )
 
 # ---------------------------------------------------------------------------
+# Response-Envelope (PR-6: CH-004 Per-Response-Attribution, SDK-002)
+# ---------------------------------------------------------------------------
+
+
+def _ogd_envelope(
+    payload: Any,
+    *,
+    source: str,
+    data_source_url: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Wickelt eine JSON-Antwort in ein konsistentes OGD-Provenance-Envelope.
+
+    Felder:
+      payload          — die eigentlichen Daten
+      provenance       — Per-Response-Attribution für CC BY 4.0
+        source         — z.B. "MeteoSwiss SwissMetNet via BGDI STAC"
+        license        — immer "CC BY 4.0" für OGD-Quellen
+        attribution    — "MeteoSchweiz" (Pflicht laut DSGVO/Lizenz)
+        retrieved_at   — ISO-Timestamp des Tool-Aufrufs
+        data_source_url — falls vorhanden, Direkt-URL der Quelle
+    """
+    from datetime import UTC, datetime
+
+    env: dict[str, Any] = {
+        "payload": payload,
+        "provenance": {
+            "source": source,
+            "license": "CC BY 4.0",
+            "attribution": "MeteoSchweiz",
+            "retrieved_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "data_source_url": data_source_url,
+        },
+    }
+    if extra:
+        env.update(extra)
+    return env
+
+
+# ---------------------------------------------------------------------------
 # Pydantic-Eingabemodelle
 # ---------------------------------------------------------------------------
 
@@ -748,14 +788,15 @@ async def meteo_stations(params: StationsInput) -> str:
 
     if params.response_format == ResponseFormat.JSON:
         return json.dumps(
-            {
-                "stationen": filtered,
-                "total": len(filtered),
-                "filter_kanton": params.canton or "alle",
-                "stac_collection": f"https://data.geo.admin.ch/api/stac/v1/collections/{SMN_COLLECTION}",
-                "opendata_meteoswiss": "https://opendatadocs.meteoswiss.ch",
-                "quelle": "MeteoSwiss SwissMetNet (SMN) – Open Government Data",
-            },
+            _ogd_envelope(
+                {
+                    "stationen": filtered,
+                    "total": len(filtered),
+                    "filter_kanton": params.canton or "alle",
+                },
+                source="MeteoSwiss SwissMetNet (SMN) – kuratierte Auswahl, eingebettet",
+                data_source_url=f"https://data.geo.admin.ch/api/stac/v1/collections/{SMN_COLLECTION}",
+            ),
             ensure_ascii=False,
             indent=2,
         )
@@ -857,16 +898,22 @@ async def meteo_current(params: CurrentInput, ctx: Context | None = None) -> str
 
     if params.response_format == ResponseFormat.JSON:
         return json.dumps(
-            {
-                "station": code,
-                "name": station_info["name"],
-                "canton": station_info["canton"],
-                "lat": station_info["lat"],
-                "lon": station_info["lon"],
-                "alt_m": station_info["alt"],
-                "beobachtungen": rows,
-                "quelle": "MeteoSwiss SMN via BGDI STAC API",
-            },
+            _ogd_envelope(
+                {
+                    "station": code,
+                    "name": station_info["name"],
+                    "canton": station_info["canton"],
+                    "lat": station_info["lat"],
+                    "lon": station_info["lon"],
+                    "alt_m": station_info["alt"],
+                    "beobachtungen": rows,
+                },
+                source="MeteoSwiss SwissMetNet via BGDI STAC API",
+                data_source_url=(
+                    f"https://data.geo.admin.ch/api/stac/v1/collections/{SMN_COLLECTION}/items/"
+                    f"ch.meteoschweiz.ogd-smn-{code.lower()}"
+                ),
+            ),
             ensure_ascii=False,
             indent=2,
         )
@@ -975,14 +1022,18 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
 
     if params.response_format == ResponseFormat.JSON:
         return json.dumps(
-            {
-                "ort": display_name,
-                "lat": lat,
-                "lon": lon,
-                "prognose_tage": params.days,
-                "modell": "MeteoSwiss ICON-CH1/CH2-EPS via Open-Meteo",
-                "daten": data,
-            },
+            _ogd_envelope(
+                {
+                    "ort": display_name,
+                    "lat": lat,
+                    "lon": lon,
+                    "prognose_tage": params.days,
+                    "modell": "MeteoSwiss ICON-CH1/CH2-EPS via Open-Meteo",
+                    "daten": data,
+                },
+                source="MeteoSwiss ICON-CH1/CH2-EPS via Open-Meteo",
+                data_source_url="https://api.open-meteo.com/v1/meteoswiss",
+            ),
             ensure_ascii=False,
             indent=2,
         )
@@ -1263,15 +1314,18 @@ async def meteo_climate_normals(params: ClimateNormalsInput) -> str:
 
     if params.response_format == ResponseFormat.JSON:
         return json.dumps(
-            {
-                "station": code,
-                "name": station_info["name"],
-                "canton": station_info["canton"],
-                "periode": "1991–2020",
-                "monate": MONTHS_DE,
-                "normwerte": normals,
-                "quelle": "MeteoSwiss Klimanormwerte 1991–2020 (OGD)",
-            },
+            _ogd_envelope(
+                {
+                    "station": code,
+                    "name": station_info["name"],
+                    "canton": station_info["canton"],
+                    "periode": "1991–2020",
+                    "monate": MONTHS_DE,
+                    "normwerte": normals,
+                },
+                source="MeteoSwiss Klimanormwerte 1991–2020 (OGD, eingebettet)",
+                data_source_url="https://opendata.swiss/de/dataset?q=meteoschweiz+klimanormwerte",
+            ),
             ensure_ascii=False,
             indent=2,
         )
@@ -1408,13 +1462,17 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
 
     if params.response_format == ResponseFormat.JSON:
         return json.dumps(
-            {
-                "kanton_filter": canton_filter or "alle",
-                "warnungen_url": "https://www.meteoswiss.admin.ch/warnings.html",
-                "meteoalarm_url": "https://www.meteoalarm.org/en/live/country/?s=CH",
-                "ogd_datensaetze": datasets[:3],
-                "hinweis": "Direkte Warnings-API geplant ab Q2 2026 (MeteoSwiss OGD Phase 2)",
-            },
+            _ogd_envelope(
+                {
+                    "kanton_filter": canton_filter or "alle",
+                    "warnungen_url": "https://www.meteoswiss.admin.ch/warnings.html",
+                    "meteoalarm_url": "https://www.meteoalarm.org/en/live/country/?s=CH",
+                    "ogd_datensaetze": datasets[:3],
+                    "hinweis": "Direkte Warnings-API geplant ab Q2 2026 (MeteoSwiss OGD Phase 2)",
+                },
+                source="MeteoSwiss Warnings (Linkstack + opendata.swiss-Katalog)",
+                data_source_url="https://www.meteoswiss.admin.ch/warnings.html",
+            ),
             ensure_ascii=False,
             indent=2,
         )

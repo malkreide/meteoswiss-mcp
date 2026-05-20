@@ -38,3 +38,11 @@ jobs:
             echo "::error::Found print() in src/ — Logs müssen via structlog auf stderr gehen, nicht via print()."
             exit 1
           fi
+
+      - name: Guard — tool-hashes.json ist aktuell (SEC-022)
+        run: |
+          python scripts/tool_hashes.py --write
+          if ! git diff --exit-code tool-hashes.json; then
+            echo "::error::tool-hashes.json ist nicht mehr aktuell. Lokal 'python scripts/tool_hashes.py --write' ausführen, committen und re-pushen."
+            exit 1
+          fi
