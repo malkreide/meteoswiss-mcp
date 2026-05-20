@@ -921,6 +921,239 @@ def test_all_tools_have_use_case_tag():
 
 
 # ---------------------------------------------------------------------------
+# Phase-2: TTL-Cache
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cache_hit_avoids_second_fetch():
+    """Zweiter Aufruf mit identischem Schlüssel ruft fetch() nicht erneut auf."""
+    from meteoswiss_mcp.server import _cache_clear, _cached
+
+    _cache_clear()
+    calls: list[int] = []
+
+    async def fetch():
+        calls.append(1)
+        return {"v": len(calls)}
+
+    a = await _cached("stac_item", ("test-key",), fetch)
+    b = await _cached("stac_item", ("test-key",), fetch)
+    assert a == b == {"v": 1}
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_cache_miss_after_expiry(monkeypatch):
+    """Eintrag mit abgelaufener TTL wird neu gefetcht."""
+    from meteoswiss_mcp.server import _cache_clear, _cached
+
+    _cache_clear()
+    calls: list[int] = []
+
+    async def fetch():
+        calls.append(1)
+        return len(calls)
+
+    # TTL künstlich auf 0 setzen → jeder Aufruf ist miss
+    from meteoswiss_mcp import server as srv
+
+    monkeypatch.setitem(srv._CACHE_TTL, "stac_item", 0)
+    await _cached("stac_item", ("k",), fetch)
+    await _cached("stac_item", ("k",), fetch)
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_cache_disabled_via_env(monkeypatch):
+    """MCP_CACHE_ENABLED=0 deaktiviert Caching komplett."""
+    import importlib
+
+    monkeypatch.setenv("MCP_CACHE_ENABLED", "0")
+    from meteoswiss_mcp import server as srv
+
+    importlib.reload(srv)
+    calls: list[int] = []
+
+    async def fetch():
+        calls.append(1)
+        return len(calls)
+
+    await srv._cached("stac_item", ("k",), fetch)
+    await srv._cached("stac_item", ("k",), fetch)
+    assert len(calls) == 2
+
+    # Cleanup: Modul mit Default-ENV reloaden, sonst beeinflusst es spätere Tests
+    monkeypatch.delenv("MCP_CACHE_ENABLED", raising=False)
+    importlib.reload(srv)
+
+
+# ---------------------------------------------------------------------------
+# Phase-2: Climate-Normals-Erweiterung via JSON-Datei
+# ---------------------------------------------------------------------------
+
+
+def test_load_extra_climate_normals_valid(tmp_path, monkeypatch):
+    """Valide Datei wird gemerged; bestehende Stationen können überschrieben werden."""
+    import importlib
+
+    f = tmp_path / "extra.json"
+    f.write_text(
+        json.dumps(
+            {
+                "DAV": {
+                    "temp_mean":  [1.0] * 12,
+                    "precip_mm":  [50.0] * 12,
+                    "sunshine_h": [120.0] * 12,
+                },
+                # Überschreibt bestehendes KLO partiell
+                "KLO": {"temp_mean": [99.0] * 12},
+            }
+        )
+    )
+    monkeypatch.setenv("MCP_CLIMATE_NORMALS_PATH", str(f))
+
+    from meteoswiss_mcp import server as srv
+
+    importlib.reload(srv)
+
+    assert "DAV" in srv.CLIMATE_NORMALS
+    assert srv.CLIMATE_NORMALS["DAV"]["temp_mean"] == [1.0] * 12
+    assert srv.CLIMATE_NORMALS["KLO"]["temp_mean"][0] == 99.0
+
+    monkeypatch.delenv("MCP_CLIMATE_NORMALS_PATH", raising=False)
+    importlib.reload(srv)
+
+
+def test_load_extra_climate_normals_invalid_skipped(tmp_path, monkeypatch):
+    """Fehlerhafte Einträge werden geskippt, valide übernommen."""
+    import importlib
+
+    f = tmp_path / "extra.json"
+    f.write_text(
+        json.dumps(
+            {
+                "GOOD": {"temp_mean": [1.0] * 12},
+                "BAD_LENGTH": {"temp_mean": [1.0, 2.0, 3.0]},  # nur 3 Werte
+                "BAD_TYPE": {"temp_mean": "not a list"},
+                "BAD_VALUES": {"temp_mean": ["a"] * 12},
+            }
+        )
+    )
+    monkeypatch.setenv("MCP_CLIMATE_NORMALS_PATH", str(f))
+
+    from meteoswiss_mcp import server as srv
+
+    importlib.reload(srv)
+
+    assert "GOOD" in srv.CLIMATE_NORMALS
+    assert "BAD_LENGTH" not in srv.CLIMATE_NORMALS
+    assert "BAD_TYPE" not in srv.CLIMATE_NORMALS
+    assert "BAD_VALUES" not in srv.CLIMATE_NORMALS
+
+    monkeypatch.delenv("MCP_CLIMATE_NORMALS_PATH", raising=False)
+    importlib.reload(srv)
+
+
+# ---------------------------------------------------------------------------
+# Phase-2: Warnings-API (MCP_WARNINGS_API_URL)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_warnings_geojson_features():
+    """GeoJSON-Style (features-Array) wird auf das Standard-Schema gebracht."""
+    from meteoswiss_mcp.server import _normalize_warnings_response
+
+    raw = {
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "type": "thunderstorm",
+                    "level": 3,
+                    "regions": ["ZH"],
+                    "valid_until": "2026-05-21T12:00:00Z",
+                    "text": "Gewitter erwartet",
+                },
+            },
+            {
+                "properties": {
+                    "type": "heavy_rain",
+                    "level": 2,
+                    "regions": ["GR", "TI"],
+                }
+            },
+        ]
+    }
+    result = _normalize_warnings_response(raw, canton_filter="")
+    assert len(result) == 2
+    assert result[0]["type"] == "thunderstorm"
+    assert result[0]["regions"] == ["ZH"]
+    assert result[1]["regions"] == ["GR", "TI"]
+
+
+def test_normalize_warnings_canton_filter():
+    """Canton-Filter wendet sich auf die regions-Liste an."""
+    from meteoswiss_mcp.server import _normalize_warnings_response
+
+    raw = {
+        "warnings": [
+            {"type": "snow", "level": 4, "regions": ["GR"]},
+            {"type": "wind", "level": 2, "regions": ["ZH", "GR"]},
+            {"type": "fog", "level": 1, "regions": ["TI"]},
+        ]
+    }
+    result = _normalize_warnings_response(raw, canton_filter="ZH")
+    assert len(result) == 1
+    assert result[0]["type"] == "wind"
+
+
+@pytest.mark.asyncio
+async def test_meteo_warnings_uses_api_when_configured(monkeypatch):
+    """Wenn MCP_WARNINGS_API_URL gesetzt ist, wird die API aufgerufen + gerendert."""
+    import respx
+
+    # API-URL muss auf der Egress-Allow-List liegen → opendata.swiss missbrauchen
+    monkeypatch.setenv(
+        "MCP_WARNINGS_API_URL",
+        "https://opendata.swiss/api/3/action/datastore_search?resource_id=warnings",
+    )
+
+    from meteoswiss_mcp import server as srv
+
+    srv._cache_clear()
+
+    with respx.mock(assert_all_called=False) as r:
+        # API-Mock
+        r.get("https://opendata.swiss/api/3/action/datastore_search").respond(
+            200,
+            json={
+                "warnings": [
+                    {
+                        "type": "thunderstorm",
+                        "level": 4,
+                        "regions": ["ZH"],
+                        "valid_until": "2026-05-21T12:00:00Z",
+                        "text": "Schwere Gewitter mit Hagel",
+                    }
+                ]
+            },
+        )
+        # Linkstack-opendata.swiss (separater Pfad) — leerer Erfolg
+        r.get("https://opendata.swiss/api/3/action/package_search").respond(
+            200, json={"result": {"results": []}}
+        )
+
+        result = await srv.meteo_warnings(srv.WarningsInput(canton="ZH"))
+
+    assert "Aktive Warnungen (1)" in result
+    assert "thunderstorm" in result
+    assert "ZH" in result
+
+    monkeypatch.delenv("MCP_WARNINGS_API_URL", raising=False)
+
+
+# ---------------------------------------------------------------------------
 # Live-Tests (mit echten APIs)
 # ---------------------------------------------------------------------------
 
