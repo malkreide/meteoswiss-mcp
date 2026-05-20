@@ -31,3 +31,10 @@ jobs:
 
       - name: Lint
         run: ruff check src/ tests/
+
+      - name: Guard — no print() in src/ (stdio-Transport-Pflicht, OBS-004)
+        run: |
+          if grep -rnE '^\s*print\s*\(' src/; then
+            echo "::error::Found print() in src/ — Logs müssen via structlog auf stderr gehen, nicht via print()."
+            exit 1
+          fi

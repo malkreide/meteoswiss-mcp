@@ -84,6 +84,7 @@ Konfiguration via ENV-Variablen (CLI-Flags `--http` / `--port N` funktionieren w
 | `MCP_HOST` | `127.0.0.1` | Bind-Address — **lokal nie ändern** |
 | `MCP_PORT` | `8000` | Port |
 | `MCP_ALLOW_ANY_HOST` | _unset_ | Muss auf `1` gesetzt sein, damit der Server an `0.0.0.0` binden darf (nur in Container/Cloud) |
+| `MCP_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` — strukturierte JSON-Logs auf stderr |
 
 ```bash
 # Lokaler Test (sicher, nur loopback)
@@ -91,6 +92,16 @@ MCP_TRANSPORT=streamable-http meteoswiss-mcp
 
 # Container / Render
 MCP_TRANSPORT=streamable-http MCP_HOST=0.0.0.0 MCP_ALLOW_ANY_HOST=1 meteoswiss-mcp
+```
+
+#### Structured Logging
+
+Alle Tool-Invocations, Upstream-Failures und Egress-Blocks werden als JSON-Events auf `stderr` ausgegeben (stdio-Transport-sicher). Beispiel:
+
+```json
+{"tool": "meteo_forecast", "days": 7, "has_coords": false, "event": "tool_invoked", "level": "info", "timestamp": "2026-05-20T07:00:00Z"}
+{"tool": "meteo_forecast", "endpoint": "geocoding", "error_type": "HTTPStatusError", "event": "upstream_failed", "level": "warning", "timestamp": "..."}
+{"url": "https://evil.example.com/", "method": "GET", "reason": "host not in allow-list", "event": "egress_blocked", "level": "warning", "timestamp": "..."}
 ```
 
 #### HTTP-Modus Sicherheit
