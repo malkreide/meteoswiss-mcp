@@ -1,0 +1,51 @@
+# Dependabot v2 (ARCH-012 — Update-Disziplin).
+# - pip: bewacht pyproject.toml-Dependencies (mcp, httpx, pydantic, structlog)
+# - github-actions: hält actions/setup-python, checkout, pypa-publish aktuell
+# - docker: bewacht das Dockerfile-Base-Image
+#
+# Wöchentlich Montags, max. 5 offene PRs pro Ecosystem — Rauschen niedrig
+# halten, aber keine veraltete Lib übersehen.
+
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ecosystem:pip"
+    groups:
+      runtime:
+        patterns:
+          - "mcp*"
+          - "httpx*"
+          - "pydantic*"
+          - "structlog*"
+      dev:
+        patterns:
+          - "pytest*"
+          - "respx*"
+          - "ruff*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ecosystem:github-actions"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ecosystem:docker"

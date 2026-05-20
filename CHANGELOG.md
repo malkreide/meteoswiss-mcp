@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CH-004 / SDK-002** OGD-Provenance-Envelope für alle JSON-Tool-Outputs: `payload` + `provenance` (`source`, `license=CC BY 4.0`, `attribution=MeteoSchweiz`, `retrieved_at`, `data_source_url`). Markdown-Outputs unverändert.
+- **ARCH-012** Dependabot-Konfiguration für `pip`, `github-actions` und `docker`. README enthält jetzt eine «MCP Protocol Version»-Sektion mit Update-Policy.
+- **ARCH-009** README-Annotations-Tabelle mit `readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint` pro Tool.
+- **OPS-003** `docs/roadmap.md` mit expliziter Phasen-Statustabelle (Phase 1 aktiv, Phase 2 geplant, Phase 3 explizit out-of-scope) und Audit-Verfolgung.
+- **SEC-022** `scripts/tool_hashes.py` + `tool-hashes.json` Snapshot. CI-Guard `git diff --exit-code tool-hashes.json` blockt PRs, die Tool-Definitionen ändern ohne den Hash zu aktualisieren.
 - **SDK-004** CORS-Middleware via `MCP_ALLOWED_ORIGINS`-ENV (komma-separiert). `Mcp-Session-Id` wird automatisch in `Access-Control-Expose-Headers` exponiert — browser-clients wie claude.ai Web können jetzt Sessions aufbauen.
 - **SEC-009 / SEC-013** Optionaler API-Key-Auth-Layer via `MCP_API_KEY`. Akzeptiert `X-API-Key`- oder `Authorization: Bearer`-Header, constant-time-Vergleich via `secrets.compare_digest`. `/health` ist bewusst aus der Auth-Pflicht ausgenommen, damit Container-Probes nicht 401 zurückbekommen. `auth_rejected`-Events werden geloggt.
 - **SEC-007 / SCALE-004 / SCALE-006** Multi-Stage-`Dockerfile` (non-root user `mcp:10001`, `HEALTHCHECK`) + `render.yaml`-Blueprint (plan starter, healthCheckPath, explizit `numInstances: 1`). `.dockerignore` schliesst Audits/Assets/Tests aus.

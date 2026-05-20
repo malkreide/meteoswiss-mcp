@@ -176,8 +176,11 @@ async def test_meteo_stations_json():
 
     result = await meteo_stations(StationsInput(canton="ZH", response_format="json"))
     data = json.loads(result)
-    assert "stationen" in data
-    assert "KLO" in data["stationen"]
+    # PR-6: OGDResponse-Envelope mit payload + provenance
+    assert "stationen" in data["payload"]
+    assert "KLO" in data["payload"]["stationen"]
+    assert data["provenance"]["license"] == "CC BY 4.0"
+    assert data["provenance"]["attribution"] == "MeteoSchweiz"
 
 
 @pytest.mark.asyncio
@@ -224,8 +227,11 @@ async def test_meteo_climate_normals_json():
         ClimateNormalsInput(station="SMA", response_format="json")
     )
     data = json.loads(result)
-    assert data["station"] == "SMA"
-    assert len(data["normwerte"]["temp_mean"]) == 12
+    # PR-6: OGDResponse-Envelope
+    assert data["payload"]["station"] == "SMA"
+    assert len(data["payload"]["normwerte"]["temp_mean"]) == 12
+    assert data["provenance"]["license"] == "CC BY 4.0"
+    assert "retrieved_at" in data["provenance"]
 
 
 @pytest.mark.asyncio
@@ -715,6 +721,29 @@ async def test_auth_rejection_emits_log(monkeypatch):
     rejected = [e for e in fake.events if e[1] == "auth_rejected"]
     assert rejected, fake.events
     assert rejected[0][2].get("has_credential") is True
+
+
+# ---------------------------------------------------------------------------
+# OGDResponse-Envelope (PR-6: CH-004 / SDK-002)
+# ---------------------------------------------------------------------------
+
+
+def test_ogd_envelope_has_required_fields():
+    """Envelope hat payload + provenance mit allen Pflichtfeldern."""
+    from meteoswiss_mcp.server import _ogd_envelope
+
+    env = _ogd_envelope(
+        {"foo": "bar"}, source="Test-Source", data_source_url="https://example.org/data"
+    )
+    assert env["payload"] == {"foo": "bar"}
+    prov = env["provenance"]
+    assert prov["source"] == "Test-Source"
+    assert prov["license"] == "CC BY 4.0"
+    assert prov["attribution"] == "MeteoSchweiz"
+    assert prov["data_source_url"] == "https://example.org/data"
+    # ISO-Timestamp, endet auf Z (UTC)
+    assert prov["retrieved_at"].endswith("Z")
+    assert "T" in prov["retrieved_at"]
 
 
 # ---------------------------------------------------------------------------

@@ -44,6 +44,31 @@ Wie war Luftqualität und Wetter beim Schulhaus Leutschenbach gestern?
 | `meteo_climate_normals` | Monatliche Klimanormwerte 1991–2020 | Eingebettet (KLO, SMA, BER, LUG, GVE) |
 | `meteo_warnings` | Aktuelle Wetterwarnungen & Links | opendata.swiss + Links |
 
+### Tool Annotations (MCP-Hints)
+
+Alle Tools tragen explizite [MCP-Annotations](https://modelcontextprotocol.io/specification/draft/server/tools#tool-annotations) — relevant für Client-Approval-UI und Sicherheitsentscheide des LLM.
+
+| Tool | `readOnlyHint` | `destructiveHint` | `idempotentHint` | `openWorldHint` |
+|------|---|---|---|---|
+| `meteo_stations` | ✅ | ✗ | ✅ | ✗ (kuratierte Liste) |
+| `meteo_current` | ✅ | ✗ | ✗ (Live-Daten) | ✅ (Upstream-STAC) |
+| `meteo_forecast` | ✅ | ✗ | ✗ (Live-Daten) | ✅ (Upstream-Open-Meteo) |
+| `meteo_school_check` | ✅ | ✗ | ✗ (Live-Daten) | ✅ (Geocoding + Forecast) |
+| `meteo_climate_normals` | ✅ | ✗ | ✅ | ✗ (eingebettete Normwerte) |
+| `meteo_warnings` | ✅ | ✗ | ✗ (Live-Daten) | ✅ (opendata.swiss) |
+
+**Lese-Regeln**: alle 6 Tools sind `readOnly + non-destructive` — der Server kann grundsätzlich nichts schreiben oder löschen. `idempotentHint=False` markiert Tools, die je nach Zeitpunkt unterschiedliche Werte liefern.
+
+### MCP Protocol Version
+
+| Aspekt | Wert |
+|---|---|
+| Getestete Spec-Versionen | `2024-11-05`, `2025-03-26`, `2025-06-18` (via `mcp[cli]` SDK) |
+| FastMCP-SDK-Version | siehe `pyproject.toml` → `mcp[cli]>=1.0.0` |
+| Update-Policy | Dependabot bewacht `mcp[cli]`; Spec-Bumps werden im CHANGELOG mit «Tool Definition Changes»-Marker dokumentiert |
+
+→ Vollständige Roadmap & Update-Strategie: [`docs/roadmap.md`](docs/roadmap.md)
+
 ---
 
 ## Schnellstart
