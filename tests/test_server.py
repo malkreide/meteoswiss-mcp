@@ -531,6 +531,29 @@ def test_no_print_calls_in_source():
 
 
 # ---------------------------------------------------------------------------
+# Health Endpoint (PR-4: SCALE-004)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_healthcheck_returns_200():
+    """Health-Probe ist trivial-200 ohne Upstream-Pings."""
+    from httpx import ASGITransport, AsyncClient
+
+    from meteoswiss_mcp.server import mcp
+
+    app = mcp.streamable_http_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        resp = await client.get("/health")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["service"] == "meteoswiss-mcp"
+
+
+# ---------------------------------------------------------------------------
 # Live-Tests (mit echten APIs)
 # ---------------------------------------------------------------------------
 
