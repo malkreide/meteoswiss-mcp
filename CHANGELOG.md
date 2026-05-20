@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **SEC-004 / SEC-021** Egress-Allow-List: alle ausgehenden HTTP-Requests werden gegen eine frozenset-Allow-List validiert; Redirect-Follow-Targets ebenfalls. IP-Literale (insbesondere 169.254.169.254 + RFC1918) werden mit `EgressBlocked` abgelehnt.
+- **SEC-016** `MCP_HOST` defaultet jetzt auf `127.0.0.1`; Binding an `0.0.0.0` benötigt explizites `MCP_ALLOW_ANY_HOST=1` (vermeidet NeighborJack bei lokalen `--http`-Sessions).
+- **SEC-006** Transport-Selektion via `MCP_TRANSPORT`-ENV-Variable (CLI-Flags `--http`/`--port` bleiben als Override erhalten).
+
+### Changed
+
+- Entry-Point ist jetzt `meteoswiss_mcp.server:main` (statt `mcp.run`), um Transport-Settings aus ENV/CLI zu lesen.
+- `httpx.AsyncClient` ist nun mit `event_hooks={"request": [...]}` für die Allow-List instrumentiert.
+
 ## [0.1.0] - 2026-03-31
 
 ### Added

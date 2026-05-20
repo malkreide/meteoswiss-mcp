@@ -76,9 +76,28 @@ Wie war Luftqualität und Wetter beim Schulhaus Leutschenbach gestern?
 
 ### Cloud / Render.com (Streamable HTTP)
 
+Konfiguration via ENV-Variablen (CLI-Flags `--http` / `--port N` funktionieren weiterhin als Override):
+
+| Variable | Default | Bedeutung |
+|---|---|---|
+| `MCP_TRANSPORT` | `stdio` | `stdio` oder `streamable-http` |
+| `MCP_HOST` | `127.0.0.1` | Bind-Address — **lokal nie ändern** |
+| `MCP_PORT` | `8000` | Port |
+| `MCP_ALLOW_ANY_HOST` | _unset_ | Muss auf `1` gesetzt sein, damit der Server an `0.0.0.0` binden darf (nur in Container/Cloud) |
+
 ```bash
-python -m meteoswiss_mcp.server --http --port 8000
+# Lokaler Test (sicher, nur loopback)
+MCP_TRANSPORT=streamable-http meteoswiss-mcp
+
+# Container / Render
+MCP_TRANSPORT=streamable-http MCP_HOST=0.0.0.0 MCP_ALLOW_ANY_HOST=1 meteoswiss-mcp
 ```
+
+#### HTTP-Modus Sicherheit
+
+- `MCP_HOST` defaultet bewusst auf `127.0.0.1`, damit `--http` auf dem Dev-Laptop nicht versehentlich ins lokale Subnetz exponiert ist (Audit-Finding SEC-016).
+- Alle ausgehenden HTTP-Calls (auch Redirect-Follows) werden gegen eine Allow-List validiert: `data.geo.admin.ch`, `api.open-meteo.com`, `geocoding-api.open-meteo.com`, `opendata.swiss`. Andere Hosts und IP-Literale (insb. `169.254.169.254`, RFC1918) werden mit `EgressBlocked` abgelehnt (SEC-004 / SEC-021).
+- Im HTTP-Modus existiert (noch) **keine Auth-Schicht**. Wer den Server öffentlich erreichbar betreiben will, sollte ihn hinter einen Reverse-Proxy mit API-Key / OAuth-Proxy setzen.
 
 ---
 

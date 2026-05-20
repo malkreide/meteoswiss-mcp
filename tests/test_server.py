@@ -291,6 +291,126 @@ async def test_meteo_school_check_mocked_geocode_empty():
 
 
 # ---------------------------------------------------------------------------
+# Egress Allow-List (PR-1: SEC-004 / SEC-021)
+# ---------------------------------------------------------------------------
+
+
+class TestAssertSafeUrl:
+    def test_allows_known_host(self):
+        from meteoswiss_mcp.server import assert_safe_url
+
+        # Soll nicht werfen
+        assert_safe_url("https://data.geo.admin.ch/api/stac/v1/foo")
+        assert_safe_url("https://api.open-meteo.com/v1/meteoswiss")
+        assert_safe_url("https://geocoding-api.open-meteo.com/v1/search?name=Zurich")
+        assert_safe_url("https://opendata.swiss/api/3/action/package_search")
+
+    def test_rejects_http_scheme(self):
+        from meteoswiss_mcp.server import EgressBlocked, assert_safe_url
+
+        with pytest.raises(EgressBlocked, match="https"):
+            assert_safe_url("http://data.geo.admin.ch/foo")
+
+    def test_rejects_unknown_host(self):
+        from meteoswiss_mcp.server import EgressBlocked, assert_safe_url
+
+        with pytest.raises(EgressBlocked, match="allow-list"):
+            assert_safe_url("https://evil.example.com/exfil")
+
+    def test_rejects_loopback_ip(self):
+        from meteoswiss_mcp.server import EgressBlocked, assert_safe_url
+
+        with pytest.raises(EgressBlocked, match="unsafe IP|IP-literal"):
+            assert_safe_url("https://127.0.0.1/")
+
+    def test_rejects_link_local_metadata_ip(self):
+        """AWS / GCP / Azure Metadata-Service IP — klassischer SSRF-Vektor."""
+        from meteoswiss_mcp.server import EgressBlocked, assert_safe_url
+
+        with pytest.raises(EgressBlocked):
+            assert_safe_url("https://169.254.169.254/latest/meta-data/")
+
+    def test_rejects_rfc1918_ip(self):
+        from meteoswiss_mcp.server import EgressBlocked, assert_safe_url
+
+        for ip in ("10.0.0.1", "192.168.1.1", "172.16.0.1"):
+            with pytest.raises(EgressBlocked):
+                assert_safe_url(f"https://{ip}/admin")
+
+    def test_rejects_public_ip_literal(self):
+        """Auch public IPs in URLs ablehnen — Allow-List wirkt sonst nicht."""
+        from meteoswiss_mcp.server import EgressBlocked, assert_safe_url
+
+        with pytest.raises(EgressBlocked, match="IP-literal"):
+            assert_safe_url("https://8.8.8.8/")
+
+    def test_rejects_no_host(self):
+        from meteoswiss_mcp.server import EgressBlocked, assert_safe_url
+
+        with pytest.raises(EgressBlocked):
+            assert_safe_url("https:///nohost")
+
+
+@pytest.mark.asyncio
+async def test_lifespan_client_blocks_disallowed_host():
+    """Der Lifespan-Client lehnt nicht-allowlistete Hosts vor Versand ab."""
+    import httpx
+
+    from meteoswiss_mcp.server import EgressBlocked, app_lifespan, mcp
+
+    async with app_lifespan(mcp) as appctx:
+        with pytest.raises((EgressBlocked, httpx.RequestError)) as exc_info:
+            await appctx.http.get("https://evil.example.com/")
+        # Falls httpx EgressBlocked als RequestError wrappt:
+        assert "allow-list" in str(exc_info.value) or isinstance(
+            exc_info.value, EgressBlocked
+        )
+
+
+# ---------------------------------------------------------------------------
+# Entry-Point Defaults  (PR-1: SEC-006, SEC-016)
+# ---------------------------------------------------------------------------
+
+
+class TestTransportSettings:
+    def test_default_is_stdio_loopback(self, monkeypatch):
+        from meteoswiss_mcp.server import _resolve_transport_settings
+
+        for var in ("MCP_TRANSPORT", "MCP_HOST", "MCP_PORT"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr("sys.argv", ["meteoswiss-mcp"])
+
+        transport, host, port = _resolve_transport_settings()
+        assert transport == "stdio"
+        assert host == "127.0.0.1"
+        assert port == 8000
+
+    def test_env_overrides_to_http(self, monkeypatch):
+        from meteoswiss_mcp.server import _resolve_transport_settings
+
+        monkeypatch.setenv("MCP_TRANSPORT", "streamable-http")
+        monkeypatch.setenv("MCP_HOST", "0.0.0.0")
+        monkeypatch.setenv("MCP_PORT", "9090")
+        monkeypatch.setattr("sys.argv", ["meteoswiss-mcp"])
+
+        transport, host, port = _resolve_transport_settings()
+        assert transport == "streamable-http"
+        assert host == "0.0.0.0"
+        assert port == 9090
+
+    def test_cli_flag_overrides_env(self, monkeypatch):
+        from meteoswiss_mcp.server import _resolve_transport_settings
+
+        monkeypatch.delenv("MCP_TRANSPORT", raising=False)
+        monkeypatch.setattr("sys.argv", ["meteoswiss-mcp", "--http", "--port", "7000"])
+
+        transport, host, port = _resolve_transport_settings()
+        assert transport == "streamable-http"
+        assert host == "127.0.0.1"  # kein MCP_HOST gesetzt
+        assert port == 7000
+
+
+# ---------------------------------------------------------------------------
 # Live-Tests (mit echten APIs)
 # ---------------------------------------------------------------------------
 

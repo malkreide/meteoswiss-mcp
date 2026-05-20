@@ -26,13 +26,17 @@ from __future__ import annotations
 
 import csv
 import io
+import ipaddress
 import json
+import os
 import re
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
@@ -147,6 +151,63 @@ SCHOOL_THRESHOLDS: dict[str, Any] = {
 }
 
 # ---------------------------------------------------------------------------
+# Egress Allow-List (PR-1: SEC-004 SSRF, SEC-021 Egress-Control)
+# ---------------------------------------------------------------------------
+
+# Exakte Host-Whitelist für alle ausgehenden HTTP-Calls. Jeder Request
+# (inklusive Redirect-Follow-Ups) wird vor dem Versand gegen diese Liste
+# geprüft — siehe `_validate_request_hook` unten.
+ALLOWED_HOSTS: frozenset[str] = frozenset(
+    {
+        "data.geo.admin.ch",
+        "api.open-meteo.com",
+        "geocoding-api.open-meteo.com",
+        "opendata.swiss",
+    }
+)
+
+
+class EgressBlocked(ValueError):
+    """Wird geworfen, wenn ein Request gegen die Allow-List verstösst."""
+
+
+def assert_safe_url(url: str) -> None:
+    """Validiert eine ausgehende URL.
+
+    Hebt `EgressBlocked` wenn:
+    - Schema nicht `https`
+    - Host nicht in ALLOWED_HOSTS
+    - Host ist IP-Literal (Allow-List wirkt sonst nicht; SSRF-Vektor)
+    - Host ist private/loopback/link-local/reserved IP
+
+    Der Check ist defense-in-depth gegen SEC-004 (SSRF) und SEC-021 (Egress).
+    Anwendung pro Request via httpx event_hooks — schliesst Redirect-Targets ein.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise EgressBlocked(f"only https allowed, got {parsed.scheme!r}")
+    host = parsed.hostname
+    if not host:
+        raise EgressBlocked(f"URL has no host: {url!r}")
+    # IP-Literale grundsätzlich ablehnen — Allow-List arbeitet hostnamebasiert
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None:
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise EgressBlocked(f"unsafe IP host: {ip}")
+        raise EgressBlocked(f"IP-literal hosts not allowed: {ip}")
+    if host not in ALLOWED_HOSTS:
+        raise EgressBlocked(f"host not in allow-list: {host!r}")
+
+
+async def _validate_request_hook(request: httpx.Request) -> None:
+    """httpx event_hook: validiert URL VOR jedem Request (inkl. Redirect-Follows)."""
+    assert_safe_url(str(request.url))
+
+
+# ---------------------------------------------------------------------------
 # Lifespan + HTTP-Client (PR-2: SDK-001, SDK-003, OBS-002)
 # ---------------------------------------------------------------------------
 
@@ -158,15 +219,25 @@ class AppContext:
     http: httpx.AsyncClient
 
 
+def _build_http_client() -> httpx.AsyncClient:
+    """Erstellt einen httpx.AsyncClient mit Allow-List-Validation + sicheren Defaults."""
+    return httpx.AsyncClient(
+        timeout=20.0,
+        follow_redirects=True,
+        event_hooks={"request": [_validate_request_hook]},
+    )
+
+
 @asynccontextmanager
 async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     """Erstellt einen wiederverwendeten httpx.AsyncClient für die Server-Lebenszeit.
 
-    follow_redirects=True ist nötig, weil BGDI-STAC-Asset-URLs auf Storage-
-    Buckets redirecten. Eine Egress-Allow-List wird in PR-1 (SEC-004/SEC-021)
-    ergänzt.
+    Der Client führt vor jedem Request `_validate_request_hook` aus — auch bei
+    Redirect-Follows. Das schliesst SEC-004 (SSRF) und SEC-021 (Egress-Control).
+    follow_redirects=True bleibt aktiv, weil BGDI-STAC-Assets auf data.geo.admin.ch
+    selbst redirecten (innerhalb des Allow-List-Hosts).
     """
-    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as http:
+    async with _build_http_client() as http:
         yield AppContext(http=http)
 
 
@@ -183,7 +254,7 @@ async def _http_client(ctx: Context | None) -> AsyncIterator[httpx.AsyncClient]:
             return
         except (AttributeError, LookupError):
             pass
-    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+    async with _build_http_client() as client:
         yield client
 
 
@@ -1321,16 +1392,55 @@ async def get_wmo_codes_resource() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Entry Point
+# Entry Point  (PR-1: SEC-006 MCP_TRANSPORT-Env, SEC-016 MCP_HOST default 127.0.0.1)
 # ---------------------------------------------------------------------------
 
 
-if __name__ == "__main__":
-    import sys
+def _resolve_transport_settings() -> tuple[str, str, int]:
+    """Liest Transport / Host / Port aus ENV (mit CLI-Argument-Fallback).
 
-    if "--http" in sys.argv:
-        port_idx = sys.argv.index("--port") + 1 if "--port" in sys.argv else None
-        port     = int(sys.argv[port_idx]) if port_idx else 8000
-        mcp.run(transport="streamable-http", port=port)
+    Defaults:
+    - MCP_TRANSPORT=stdio          (kein HTTP, sicherer Default)
+    - MCP_HOST=127.0.0.1           (kein 0.0.0.0; verhindert NeighborJack)
+    - MCP_PORT=8000
+
+    CLI-Flags `--http` / `--port N` überschreiben die ENV-Variablen.
+    Für Cloud-Deployment ist `MCP_HOST=0.0.0.0` bewusst zu setzen.
+    """
+    transport = os.environ.get("MCP_TRANSPORT", "stdio").lower()
+    host = os.environ.get("MCP_HOST", "127.0.0.1")
+    try:
+        port = int(os.environ.get("MCP_PORT", "8000"))
+    except ValueError:
+        port = 8000
+
+    argv = sys.argv[1:]
+    if "--http" in argv:
+        transport = "streamable-http"
+    if "--port" in argv:
+        try:
+            port = int(argv[argv.index("--port") + 1])
+        except (IndexError, ValueError):
+            pass
+    return transport, host, port
+
+
+def main() -> None:
+    transport, host, port = _resolve_transport_settings()
+    if transport in ("streamable-http", "http", "sse"):
+        # 0.0.0.0-Binding nur mit expliziter Opt-In-ENV erlauben (SEC-016)
+        if host == "0.0.0.0" and os.environ.get("MCP_ALLOW_ANY_HOST") != "1":
+            sys.stderr.write(
+                "refusing to bind to 0.0.0.0 without MCP_ALLOW_ANY_HOST=1 "
+                "(set explicitly in container/cloud manifest)\n"
+            )
+            sys.exit(2)
+        mcp.settings.host = host
+        mcp.settings.port = port
+        mcp.run(transport="streamable-http")
     else:
         mcp.run()
+
+
+if __name__ == "__main__":
+    main()
