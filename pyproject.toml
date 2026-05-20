@@ -41,7 +41,7 @@ dev = [
 ]
 
 [project.scripts]
-meteoswiss-mcp = "meteoswiss_mcp.server:mcp.run"
+meteoswiss-mcp = "meteoswiss_mcp.server:main"
 
 [project.urls]
 Homepage   = "https://github.com/malkreide/meteoswiss-mcp"
