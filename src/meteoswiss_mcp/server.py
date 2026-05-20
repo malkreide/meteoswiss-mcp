@@ -1530,6 +1530,86 @@ def _resolve_transport_settings() -> tuple[str, str, int]:
     return transport, host, port
 
 
+def _parse_origins(raw: str) -> list[str]:
+    """Komma-separierte ENV-Liste in eine bereinigte Origin-Liste umwandeln."""
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+def _build_http_app():
+    """Baut den Streamable-HTTP-ASGI-Stack: MCP-App + optionale CORS + optionale Auth.
+
+    Middleware-Order (von aussen nach innen):
+        Request → APIKey → CORS → MCP-App
+
+    Beide Middlewares sind opt-in via ENV:
+      MCP_ALLOWED_ORIGINS=https://app.example.com,https://other.example.com
+      MCP_API_KEY=<random-secret>     # wenn gesetzt, ist Header X-API-Key Pflicht
+
+    /health bleibt aus der API-Key-Pflicht ausgenommen (sonst Health-Probes 401).
+    """
+    import secrets as _secrets
+
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.middleware.cors import CORSMiddleware
+    from starlette.responses import JSONResponse
+
+    app = mcp.streamable_http_app()
+
+    # CORS (SDK-004): Mcp-Session-Id muss browser-clients exposed werden.
+    origins = _parse_origins(os.environ.get("MCP_ALLOWED_ORIGINS", ""))
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+            allow_headers=[
+                "Content-Type",
+                "Authorization",
+                "Mcp-Session-Id",
+                "MCP-Protocol-Version",
+                "X-API-Key",
+            ],
+            expose_headers=["Mcp-Session-Id"],
+            max_age=600,
+        )
+        logger.info("cors_configured", origins=origins)
+
+    # API-Key Auth (SEC-009 / SEC-013): dokumentierter Auth-Layer für HTTP-Modus.
+    api_key = os.environ.get("MCP_API_KEY")
+    if api_key:
+
+        class _ApiKeyMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                if request.url.path == "/health":
+                    return await call_next(request)
+                presented = (
+                    request.headers.get("x-api-key")
+                    or request.headers.get("authorization", "")
+                    .removeprefix("Bearer ")
+                    .strip()
+                )
+                if not presented or not _secrets.compare_digest(
+                    presented, api_key
+                ):
+                    logger.warning(
+                        "auth_rejected",
+                        path=request.url.path,
+                        has_credential=bool(presented),
+                    )
+                    return JSONResponse(
+                        {"error": "unauthorized"}, status_code=401
+                    )
+                return await call_next(request)
+
+        app.add_middleware(_ApiKeyMiddleware)
+        logger.info("auth_enabled", layer="api_key")
+    else:
+        logger.warning("auth_disabled", reason="MCP_API_KEY not set")
+
+    return app
+
+
 def main() -> None:
     transport, host, port = _resolve_transport_settings()
     if transport in ("streamable-http", "http", "sse"):
@@ -1540,9 +1620,12 @@ def main() -> None:
                 "(set explicitly in container/cloud manifest)\n"
             )
             sys.exit(2)
-        mcp.settings.host = host
-        mcp.settings.port = port
-        mcp.run(transport="streamable-http")
+        # Wir bauen die ASGI-App selbst, damit wir CORS/Auth-Middleware
+        # davorhängen können. uvicorn übernimmt dann das Serving.
+        import uvicorn
+
+        app = _build_http_app()
+        uvicorn.run(app, host=host, port=port, log_config=None)
     else:
         mcp.run()
 

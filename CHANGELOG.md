@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SDK-004** CORS-Middleware via `MCP_ALLOWED_ORIGINS`-ENV (komma-separiert). `Mcp-Session-Id` wird automatisch in `Access-Control-Expose-Headers` exponiert — browser-clients wie claude.ai Web können jetzt Sessions aufbauen.
+- **SEC-009 / SEC-013** Optionaler API-Key-Auth-Layer via `MCP_API_KEY`. Akzeptiert `X-API-Key`- oder `Authorization: Bearer`-Header, constant-time-Vergleich via `secrets.compare_digest`. `/health` ist bewusst aus der Auth-Pflicht ausgenommen, damit Container-Probes nicht 401 zurückbekommen. `auth_rejected`-Events werden geloggt.
 - **SEC-007 / SCALE-004 / SCALE-006** Multi-Stage-`Dockerfile` (non-root user `mcp:10001`, `HEALTHCHECK`) + `render.yaml`-Blueprint (plan starter, healthCheckPath, explizit `numInstances: 1`). `.dockerignore` schliesst Audits/Assets/Tests aus.
 - **SCALE-004** Health-Endpoint `GET /health` via FastMCP `custom_route` — trivialer 200-OK ohne Upstream-Pings. Test deckt Statuscode + Body ab.
 - **OBS-003** Structured Logging via `structlog`: JSON-Events auf `stderr` (stdio-safe). Events: `tool_invoked`, `upstream_failed`, `egress_blocked`. Log-Level via `MCP_LOG_LEVEL`-ENV (default `INFO`).
