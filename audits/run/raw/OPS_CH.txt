@@ -1,0 +1,63 @@
+=== OPS-001 ===
+status: partial
+title: Test-Strategie: Unit + Live-Marker vorhanden, aber kein respx-Mocking und kein nightly Live-Workflow
+evidence:
+- tests/test_server.py:245-310 — @pytest.mark.live auf 6 Live-Tests
+- tests/test_server.py:31-238 — Unit-Tests (~20) für statische Daten ohne Netzwerk
+- pyproject.toml:58-60 — markers = ["live: live API tests"] registriert
+- pyproject.toml:39 — respx>=0.21.0 als Dev-Dependency deklariert
+- .github/workflows/ci.yml:30 — pytest -m "not live"
+- Kein separater nightly/live-test.yml Workflow
+- tests/test_server.py — keine respx-Mocks verwendet
+gaps:
+- respx deklariert aber nicht verwendet (HTTP-abhängige Tools haben keine mocked Unit-Tests)
+- Kein nightly/scheduled Live-Test-Workflow
+- Keine 4xx/5xx Error-Path Unit-Tests
+notes: Marker-Trennung und CI sauber; Mocking-Disziplin und nightly-Schedule fehlen.
+
+=== OPS-002 ===
+status: pass
+title: Doku-Standard: bilingualer README, ASCII-Diagramm, Limits-Sektion, CHANGELOG, CONTRIBUTING
+evidence:
+- README.md:15-23 — Anchor-Demo-Query konkret
+- README.md:36-46 — Tools-Übersicht mit Datenquelle
+- README.md:50-82 — Installation (uvx/lokale/Cloud)
+- README.md:122-144 — ASCII-Architekturdiagramm
+- README.md:158-167 — Safety & Limits Sektion
+- README.md:170-178 — Bekannte Einschränkungen mit BUG-/LIM-IDs
+- README.de.md — bilinguale README vorhanden
+- CHANGELOG.md:1-23 — Keep-a-Changelog
+- CONTRIBUTING.md:1-56 — vorhanden
+notes: Alle 8 Pflicht-Sektionen abgedeckt; Anchor-Demo und Limits-Sektion beispielhaft.
+
+=== OPS-003 ===
+status: partial
+title: Phasenarchitektur
+evidence:
+- Alle 6 Tools readOnlyHint:True/destructiveHint:False (konsistent mit Phase 1)
+- README.md:161 — "Read-only on all tools" dokumentiert
+- CONTRIBUTING.md:49 — "No-Auth-First principle: Phase 1 only open endpoints"
+- README.md:176 — Phase-Begriff nur in LIM-02 (MeteoSwiss OGD Phase 2 = Daten-Provider)
+- Keine docs/-Directory, kein docs/roadmap.md
+- Keine "## Phase"-Sektion mit Status-Tabelle
+gaps:
+- Keine explizite Phase-1-Deklaration im README
+- Kein Roadmap-File mit Phase 1/2/3 Tasks
+- CHANGELOG dokumentiert keinen Phase-Status
+notes: Phase-1-Disziplin im Code sichtbar; formelle Deklaration fehlt.
+
+=== CH-004 ===
+status: partial
+title: OGD-CH Lizenz-Compliance
+evidence:
+- README.md:146-154 — Datenquellen-Tabelle mit URL und CC BY 4.0
+- README.md:228-231 — Lizenz-Sektion mit Quellenangabe-Pflicht
+- src/meteoswiss_mcp/server.py:18,166 — Modul-Docstring und Server-Instruction nennen CC BY 4.0
+- src/meteoswiss_mcp/server.py:582-583 — meteo_stations JSON-Response enthält "quelle"-Feld
+- Kein konsistentes Pydantic-Response-Schema mit source/license/provenance-Feldern
+- Tool-Outputs primär Markdown-Strings
+gaps:
+- Tool-Returns kein konsistentes maschinen-lesbares source/license/provenance-Feld
+- Keine retrieved_at-Timestamps in Responses
+- Zweistufige Attribution Open-Meteo + MeteoSwiss nicht pro Tool-Antwort explizit
+notes: README-Lizenz-Dokumentation vorbildlich; Per-Response-Attribution (OGDResponse) fehlt.

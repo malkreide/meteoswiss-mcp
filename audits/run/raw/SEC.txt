@@ -1,0 +1,190 @@
+=== SEC-004 ===
+status: fail
+title: SSRF-Prevention
+evidence:
+- src/meteoswiss_mcp/server.py:363-381 — _geocode() reicht User-Input "location" ungefiltert an httpx.get(GEOCODING_BASE, params={"name": location, ...})
+- src/meteoswiss_mcp/server.py:422-462 — _fetch_stac_now_csv() folgt Asset-URL aus STAC-Antwort (asset.get("href")) und ruft httpx.get(now_url, follow_redirects=True) ohne Scheme/Host/IP-Check
+- src/meteoswiss_mcp/server.py:1115-1119 — meteo_warnings: fixe opendata.swiss URL (geringeres Risiko)
+- Kein urlparse/ipaddress/getaddrinfo-Check
+gaps:
+- Keine HTTPS-Schema-Validierung
+- Keine Blocklist für 169.254.169.254 / 127.0.0.0/8 / 10.0.0.0/8 / 172.16.0.0/12 / fc00::/7
+- follow_redirects=True bei attacker-beeinflusster URL
+notes: Hardcoded Hosts; aber STAC-Asset-href und Geocoding-name führen indirekt user-/upstream-Daten in den HTTP-Layer.
+
+=== SEC-005 ===
+status: fail
+title: DNS-Rebinding-Prevention
+evidence:
+- httpx.AsyncClient ohne PinnedTransport/Custom-Resolver
+- follow_redirects=True bei _fetch_stac_now_csv: Redirect-Hostname wird beim Follow erneut aufgelöst (TOCTOU)
+gaps:
+- Keine einmalige DNS-Resolution mit IP-Pinning
+- Keine Tests mit Mock-Resolver
+notes: Voraussetzung SEC-004 nicht erfüllt; Rebinding-Defense damit ebenfalls fehlend.
+
+=== SEC-006 ===
+status: partial
+title: stdio-Default vorhanden, aber Transport-Switch über CLI-Flag statt MCP_TRANSPORT
+evidence:
+- src/meteoswiss_mcp/server.py:1242-1250 — Default-Branch ist stdio; --http schaltet auf streamable-http
+- claude_desktop_config.json — lokale Installation Default stdio
+- README.md:77-81 — Cloud/Render-Variante mit --http --port 8000 dokumentiert
+gaps:
+- Pass-Pattern fordert os.environ.get("MCP_TRANSPORT", "stdio"); vorhanden ist nur sys.argv-Parsing
+- Kein expliziter host-Wert → bindet evtl. an 0.0.0.0
+- README dokumentiert keinen Sicherheitshinweis "keine HTTP-Transport auf Dev-Rechner"
+notes: Default-stdio gegeben; ENV-Convention und Host-Binding-Hinweis fehlen.
+
+=== SEC-007 ===
+status: fail
+title: Container-Sandboxing
+evidence:
+- Kein Dockerfile, kein k8s/, kein helm/, kein render.yaml im Repo
+- .github/workflows/ci.yml — keine Trivy/Snyk-Container-Scans
+gaps:
+- Kein USER 10001/non-root Dockerfile
+- Kein readOnlyRootFilesystem/capabilities.drop
+- Render-Buildpack-Default als root
+notes: SEC-007 anwendbar wegen Cloud-Deployment; alle Härtungs-Artefakte fehlen.
+
+=== SEC-008 ===
+status: pass
+title: Pre-Configuration Consent
+evidence:
+- pyproject.toml — hatchling-Build, keine cmdclass/Custom-Hooks
+- pyproject.toml:43-44 — Standard-Entry-Point ohne Setup-Scripts
+- README.md:53-75 — voller uvx meteoswiss-mcp-Befehl transparent
+- .github/workflows/publish.yml:32-50 — PyPI-Publish via OIDC Trusted Publisher (environment: pypi, id-token: write, pypa/gh-action-pypi-publish@release/v1)
+notes: Keine Hooks, transparente Install-CMD, OIDC-Publish — alle 3 Pass-Punkte erfüllt.
+
+=== SEC-009 ===
+status: fail
+title: Session-ID Cryptographic Binding
+evidence:
+- mcp.run(transport="streamable-http", port=port) aktiviert HTTP-Transport
+- Kein secrets.token_urlsafe/uuid.uuid4/Mcp-Session-Id-Handler im Code
+- auth=none (anonymes Public-Open-Data-Profil)
+gaps:
+- HTTP-Transport ohne Auth ohne Session-Binding-Schicht
+- Keine Tests gegen Cross-Session-Zugriff
+- Keine TTL/Logout-Logik
+notes: Server verlässt sich auf FastMCP-Defaults — ohne dokumentierte Verifikation.
+
+=== SEC-013 ===
+status: partial
+title: API-Key-Storage
+evidence:
+- grep -E "KEY|SECRET|TOKEN|PASSWORD" src/ → 0 Treffer
+- pyproject.toml — keine Secrets-Manager-SDK (auch nicht nötig: alle APIs keyless)
+- claude_desktop_config.json — keine ENV-Variablen erforderlich
+gaps:
+- Keine docs/secret-management.md mit dokumentierter Begründung
+- Kein Hinweis in README "Server speichert keine Credentials"
+notes: Risiko praktisch null; Doku-Pflicht-Minimum nicht erfüllt.
+
+=== SEC-014 ===
+status: fail
+title: Tool-Allow-Listing
+evidence:
+- Alle 6 Tools unbedingt registriert; keine @require_group/Group-Claim-Prüfung
+- FastMCP-Init ohne Middleware/Auth-Handler
+- Kein gateway-config/allowlist/tool-policy im Repo
+gaps:
+- is_cloud_deployed == true → applies_when erfüllt
+- Default-Allow für alle Tools
+- Keine Audit-Logs für denied calls
+notes: Risiko niedrig (read-only Public-Open-Data); formal fail.
+
+=== SEC-015 ===
+status: fail
+title: Pre-Flight Tool-Poisoning Detection
+evidence:
+- Tools direkt via @mcp.tool registriert, kein Gateway/Scanner
+- Keine Pattern-Liste (INJECTION_PATTERNS, INVISIBLE_PATTERN)
+- Keine Tests für Poisoning-Detection
+gaps:
+- Keine Pattern-Erkennung
+- Keine filter_tool_list-Middleware
+- Keine Re-Validation
+notes: Als Single-Server architekturell vertretbar; greift erst in Gateway-Setup.
+
+=== SEC-016 ===
+status: fail
+title: 0.0.0.0-Binding-Prevention (NeighborJack)
+evidence:
+- src/meteoswiss_mcp/server.py:1242-1250 — weder host noch MCP_HOST gesetzt; FastMCP-Default für streamable-http ist 0.0.0.0
+- README.md:79-81 — empfiehlt --http --port 8000 ohne Host-Differenzierung lokal/Container
+- Kein Dockerfile/render.yaml mit ENV-Konfig
+gaps:
+- Code-Default ist implizit 0.0.0.0
+- Keine MCP_HOST-Env-Var-Logik mit Default 127.0.0.1
+- README erklärt lokale/Container-Differenzierung nicht
+notes: Kritisch — dual-transport-Modus exponiert Server bei lokaler --http-Nutzung ins lokale Subnetz.
+
+=== SEC-018 ===
+status: pass
+title: Input-Validation an Tool-Boundaries (Pydantic)
+evidence:
+- src/meteoswiss_mcp/server.py:184-312 — alle 6 Tools Pydantic-Inputs mit extra="forbid"
+- src/meteoswiss_mcp/server.py:201-216 — CurrentInput: min_length=2, max_length=5, field_validator (upper_station)
+- ForecastInput: ge/le für lat/lon/days
+- ResponseFormat StrEnum (Whitelist)
+gaps:
+- strict=True nicht explizit gesetzt
+- Kein regex-Pattern auf location/activity
+- date-Feld nur max_length=10, kein YYYY-MM-DD-Pattern
+notes: Solide Baseline; strict=True und Whitelist-Patterns würden zu voll-pass heben.
+
+=== SEC-019 ===
+status: partial
+title: Lethal Trifecta — Server-Separation Read vs Write/Send
+evidence:
+- Alle 6 Tools readOnlyHint:True, destructiveHint:False
+- Nur httpx.get-Calls, keine POST/send/mail
+- README.md:158-167 — Safety-Tabelle "Read-only", "No personal data"
+gaps:
+- Keine Trifecta-Bewertungstabelle im README/docs
+- Kein ADR
+- "untrusted content"-Kategorie nicht formal bewertet
+notes: Faktisch sicher (nur untrusted Content via httpx-GET), Doku fehlt.
+
+=== SEC-020 ===
+status: pass
+title: Command Injection Prevention
+evidence:
+- grep os.system/shell=True/eval/exec/popen/subprocess in src/ → 0 Treffer
+- Nur httpx-Library, keine Shell-Aufrufe
+- httpx mit Timeouts (10/20/30s)
+gaps:
+- Kein Bandit-Scan in CI
+notes: Sauber library-first; keine Subprocess-Sites.
+
+=== SEC-021 ===
+status: fail
+title: Egress-Allow-List
+evidence:
+- src/meteoswiss_mcp/server.py:41-44 — Hosts hardcoded als Konstanten, aber kein frozenset ALLOWED_HOSTS
+- src/meteoswiss_mcp/server.py:368,417,434,461,1117 — httpx-Calls ohne assert_host_allowed-Check
+- src/meteoswiss_mcp/server.py:444-455 — asset["href"] aus STAC-Antwort ungeprüft als URL übernommen
+- Kein k8s/render.yaml/NetworkPolicy
+gaps:
+- Keine frozenset-Allow-List
+- Kein assert_host_allowed-Helper
+- Kein Network-Layer Egress-Control dokumentiert
+notes: Tools machen externe Requests; fehlende Allow-List High-Risk insb. wegen STAC-href-Followup.
+
+=== SEC-022 ===
+status: partial
+title: Tool-Hash-Pinning + Namespace-Präfix gegen Rug Pull
+evidence:
+- Alle 6 Tools mit Präfix "meteo_"
+- src/meteoswiss_mcp/server.py:150 — Server-Identität FastMCP("meteoswiss_mcp")
+- publish.yml — kein Hash-Snapshot-Step
+- CHANGELOG.md — kein Abschnitt "Tool Definition Changes"
+gaps:
+- Präfix "meteo_" nicht eindeutig server-spezifisch
+- Keine SERVER_NAMESPACE-Konstante als Final/frozenset
+- Kein tool-hashes.json
+- CHANGELOG nennt Tool-Definition-Änderungen nicht mit Hash-Diff
+notes: Konsistenter Präfix vorhanden, aber kurz/kollisionsanfällig.

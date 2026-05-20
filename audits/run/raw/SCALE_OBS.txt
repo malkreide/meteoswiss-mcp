@@ -1,0 +1,120 @@
+=== SCALE-001 ===
+status: partial
+title: Streamable HTTP statt stdio für Cloud-Deployments
+evidence:
+- src/meteoswiss_mcp/server.py:1245-1250 — Transport-Selektion über --http/--port CLI-Flag
+- README.md:80 — dokumentiert "python -m meteoswiss_mcp.server --http --port 8000"
+- src/meteoswiss_mcp/server.py:1248 — port übergeben, aber kein host und kein MCP_TRANSPORT-Env-Var-Pattern
+gaps:
+- Keine ENV-Var-basierte Selektion
+- Kein host=0.0.0.0 explizit gesetzt → in Container kann externer Traffic Server nicht erreichen (oder umgekehrt: FastMCP-Default bindet 0.0.0.0 ohne Wahl)
+- Kein Deployment-Manifest (render.yaml/Dockerfile/railway.toml)
+notes: HTTP-Modus existiert aber CLI-Flag-getrieben und ohne explizites Binding-Pattern.
+
+=== SCALE-002 ===
+status: fail
+title: Stateful Load Balancing für Streamable HTTP / SSE
+evidence:
+- FastMCP wird ohne session_manager/lifespan initialisiert
+- pyproject.toml — kein redis/memcached/external session store
+- Repo-Root — kein render.yaml/railway.toml/k8s/helm/nginx/haproxy.cfg
+gaps:
+- Kein Sticky-Session/Affinity-Konfig
+- Kein Shared-State-Session-Manager
+- Keine Session-TTL
+notes: Bei Multi-Replica-Setup würden MCP-Sessions beim Pod-Wechsel brechen.
+
+=== SCALE-003 ===
+status: fail
+title: Mcp-Session-Id Routing via Edge-LB
+evidence:
+- Kein haproxy.cfg/nginx.conf/ingress*.yaml/deploy/
+- grep "stick|hdr|Mcp-Session-Id|affinity" → 0 Treffer
+gaps:
+- Kein Edge-LB-Config mit Header-Routing
+- Render.com default-LB liest Mcp-Session-Id nicht
+notes: Bei Multi-Replica-Setup fehlt Session-Affinität.
+
+=== SCALE-004 ===
+status: fail
+title: Containerization mit Multi-Stage-Builds
+evidence:
+- Kein Dockerfile, kein docker-compose.yml
+- pyproject.toml:43-44 — nur Entry-Point definiert
+gaps:
+- Kein Dockerfile (Render-Buildpack implizit)
+- Kein USER nobody, kein HEALTHCHECK, kein Slim-Pattern
+notes: Containerization-Strategie nicht im Repo dokumentiert.
+
+=== SCALE-006 ===
+status: fail
+title: Resource-Limits per Container
+evidence:
+- Keine Manifeste (render.yaml/K8s/docker-compose) mit memory/cpu/ulimits
+- httpx-Clients ohne Connection-Pool-Limits, FD-Limit nicht gesetzt
+gaps:
+- Memory/CPU-Limits nicht im Repo dokumentiert
+- FD-Limit (nofile) nicht konfiguriert
+- Restart-Policy/OOM-Verhalten nicht spezifiziert
+notes: Limits müssten in Render-UI gesetzt sein; im Repo keine Evidenz.
+
+=== OBS-001 ===
+status: fail
+title: Protocol vs. Execution Errors — korrekte Trennung
+evidence:
+- src/meteoswiss_mcp/server.py:654-668,746-751,758-764,897-899,902-904 — Execution-Errors als Plain-Text-Strings mit ⚠️-Marker, kein isError-Flag
+- Keine Verwendung von McpError oder JSON-RPC-Error-Codes
+- tests/test_server.py — keine Error-Pfad-Differenzierung
+gaps:
+- Errors fliessen als unstrukturierter Markdown ins Tool-Result
+- Keine standardisierten JSON-RPC-Codes
+notes: Anti-Pattern: alle Fehler in benutzerfreundlichen String konvertiert.
+
+=== OBS-002 ===
+status: partial
+title: Mask Error Details
+evidence:
+- FastMCP-Init ohne mask_error_details=True
+- src/meteoswiss_mcp/server.py:656,747,758,898,903 — f"... {exc}" fügt rohen Exception-String in User-Output (httpx-Fehlermeldungen können URL+Headers leaken)
+- Keine traceback.format_exc()/sys.exc_info() in Returns (positiv)
+gaps:
+- mask_error_details=True fehlt
+- str(exc) von httpx-Fehlern kann URL-Strukturen leaken
+- Keine zentrale Sanitization
+notes: Keine Stacktraces; rohe Exception-Messages leaken in Tool-Output.
+
+=== OBS-003 ===
+status: fail
+title: Structured Logging mit RFC 5424 Severity-Stufen
+evidence:
+- pyproject.toml — weder structlog noch loguru
+- grep "logging|logger|structlog|print" in src/ → 0 Treffer
+gaps:
+- Kein Logger initialisiert
+- Keine tool_invoked/_succeeded/_failed-Events
+- Kein bound context (tool name, session_id)
+notes: Vollständige Abwesenheit von Logging — Production-Forensik unmöglich.
+
+=== OBS-004 ===
+status: partial
+title: stderr für stdio-Server
+evidence:
+- grep "print(" in src/ → 0 Treffer (positives Signal)
+- Keine logging.basicConfig(stream=sys.stdout) Calls
+- Auch keine explizite stderr-Konfiguration
+gaps:
+- Keine defensive stderr-Konfiguration für künftige Logging-Erweiterungen
+- Kein CI-Guard gegen print()-Regression
+notes: Aktuell kein stdout-Leck (kein Logger aktiv); keine Schutzmechanismen für künftige Änderungen.
+
+=== OBS-006 ===
+status: fail
+title: OpenTelemetry Distributed Tracing pro Tool-Call
+evidence:
+- pyproject.toml — keine opentelemetry-*-Dependencies
+- grep "opentelemetry|tracer|trace.start_as_current_span" in src/ → 0 Treffer
+- Repo-Root — kein OTEL_SERVICE_NAME/OTLP-Setup
+gaps:
+- Kein TracerProvider/OTLPSpanExporter/HTTPXClientInstrumentor
+- Keine Span-Attribute (mcp.tool.name, mcp.user.id, mcp.tool.result.is_error)
+notes: Tracing fehlt komplett.
