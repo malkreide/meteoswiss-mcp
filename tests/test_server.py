@@ -1154,6 +1154,92 @@ async def test_meteo_warnings_uses_api_when_configured(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Climate-Normals Ingest-Skript (PR-13: scripts/ingest_climate_normals.py)
+# ---------------------------------------------------------------------------
+
+
+def test_ingest_parses_metswiss_wide_csv():
+    """Standard-MeteoSwiss-Wide-Format wird korrekt geparst."""
+    import importlib.util
+    import pathlib
+
+    spec = importlib.util.spec_from_file_location(
+        "ingest", pathlib.Path("scripts/ingest_climate_normals.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    csv_text = (
+        "Station;Parameter;Jan;Feb;Mar;Apr;Mai;Jun;Jul;Aug;Sep;Okt;Nov;Dez;Jahr\n"
+        "KLO;tre200m0;-0.6;0.6;4.5;8.6;13.4;16.5;18.7;18.3;14.1;9.5;4.1;0.4;9.0\n"
+        "KLO;rre150m0;61;56;66;74;100;112;99;104;81;69;72;68;962\n"
+        "DAV;tre200m0;-5.5;-4.8;-1.8;1.6;6.4;9.6;11.7;11.4;7.7;4.0;-1.0;-4.5;2.9\n"
+        "DAV;dro000s0;1;1;1;1;1;1;1;1;1;1;1;1;12\n"  # nicht-relevanter Parameter
+    )
+    result = mod.parse_csv(csv_text)
+    assert set(result.keys()) == {"KLO", "DAV"}
+    assert result["KLO"]["temp_mean"][0] == -0.6
+    assert result["KLO"]["precip_mm"][0] == 61.0
+    assert "temp_mean" in result["DAV"]
+    # nicht-relevanter Parameter dro000s0 wurde gefiltert
+    assert "dro000s0" not in result["DAV"]
+
+
+def test_ingest_plausibility_catches_swapped_stations():
+    """Vertauschte Lugano/Davos-Werte werden vom Validator gemeldet."""
+    import importlib.util
+    import pathlib
+
+    spec = importlib.util.spec_from_file_location(
+        "ingest", pathlib.Path("scripts/ingest_climate_normals.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    data = {
+        "DAV": {"temp_mean": [15.0] * 12},  # zu warm für Davos
+        "LUG": {"temp_mean": [0.0] * 12},   # zu kalt für Lugano
+    }
+    warnings = mod.validate_plausibility(data)
+    assert any("LUG" in w and "DAV" in w for w in warnings)
+
+
+def test_ingest_extracted_data_loads_into_server(tmp_path, monkeypatch):
+    """Ingestete Datei lässt sich vom Server via MCP_CLIMATE_NORMALS_PATH laden."""
+    import importlib
+
+    # Beispiel-CSV (synthetisch) ingesten
+    csv_text = (
+        "Station;Parameter;Jan;Feb;Mar;Apr;Mai;Jun;Jul;Aug;Sep;Okt;Nov;Dez;Jahr\n"
+        "TST;tre200m0;0;0;0;0;0;0;0;0;0;0;0;0;0\n"
+    )
+    csv_path = tmp_path / "input.csv"
+    csv_path.write_text(csv_text)
+    out_path = tmp_path / "out.json"
+
+    import importlib.util
+    import pathlib
+
+    spec = importlib.util.spec_from_file_location(
+        "ingest", pathlib.Path("scripts/ingest_climate_normals.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    parsed = mod.parse_csv(csv_text)
+    out_path.write_text(json.dumps(parsed))
+
+    monkeypatch.setenv("MCP_CLIMATE_NORMALS_PATH", str(out_path))
+    from meteoswiss_mcp import server as srv
+    importlib.reload(srv)
+
+    assert "TST" in srv.CLIMATE_NORMALS
+    assert srv.CLIMATE_NORMALS["TST"]["temp_mean"] == [0.0] * 12
+
+    monkeypatch.delenv("MCP_CLIMATE_NORMALS_PATH", raising=False)
+    importlib.reload(srv)
+
+
+# ---------------------------------------------------------------------------
 # Live-Tests (mit echten APIs)
 # ---------------------------------------------------------------------------
 
