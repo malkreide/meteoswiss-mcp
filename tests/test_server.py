@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 
+import httpx
 import pytest
 
 from meteoswiss_mcp.server import (
@@ -724,6 +725,88 @@ async def test_auth_rejection_emits_log(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Fuzzy-Geocoding (PR-7: ARCH-003)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_geocode_exact_match():
+    """Erster Versuch liefert Treffer → match_type='exact'."""
+    import respx
+
+    from meteoswiss_mcp.server import _build_http_client, _geocode
+
+    with respx.mock(assert_all_called=False) as r:
+        r.get("https://geocoding-api.open-meteo.com/v1/search").respond(
+            200,
+            json={
+                "results": [
+                    {
+                        "name": "Zürich",
+                        "latitude": 47.37,
+                        "longitude": 8.55,
+                        "admin1": "ZH",
+                        "country_code": "CH",
+                    }
+                ]
+            },
+        )
+        async with _build_http_client() as client:
+            lat, lon, display, match = await _geocode(client, "Zürich")
+
+    assert match == "exact"
+    assert lat == 47.37 and lon == 8.55
+
+
+@pytest.mark.asyncio
+async def test_geocode_fuzzy_fallback():
+    """Erster (DE-)Versuch leer → fuzzy-Retry ohne language → match_type='fuzzy'."""
+    import respx
+
+    from meteoswiss_mcp.server import _build_http_client, _geocode
+
+    with respx.mock(assert_all_called=False) as r:
+        route = r.get("https://geocoding-api.open-meteo.com/v1/search")
+        # erste Antwort leer, zweite mit Treffer
+        route.side_effect = [
+            httpx.Response(200, json={"results": []}),
+            httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "name": "Obscureville",
+                            "latitude": 50.0,
+                            "longitude": 7.0,
+                            "country_code": "DE",
+                        }
+                    ]
+                },
+            ),
+        ]
+        async with _build_http_client() as client:
+            lat, lon, display, match = await _geocode(client, "obscureville")
+
+    assert match == "fuzzy"
+
+
+@pytest.mark.asyncio
+async def test_geocode_none_raises():
+    """Beide Versuche leer → ValueError mit 'nicht gefunden'."""
+    import respx
+
+    from meteoswiss_mcp.server import _build_http_client, _geocode
+
+    with respx.mock(assert_all_called=False) as r:
+        r.get("https://geocoding-api.open-meteo.com/v1/search").respond(
+            200, json={"results": []}
+        )
+        async with _build_http_client() as client:
+            with pytest.raises(ValueError, match="nicht gefunden"):
+                await _geocode(client, "definitely-not-a-place-12345")
+
+
+# ---------------------------------------------------------------------------
 # OGDResponse-Envelope (PR-6: CH-004 / SDK-002)
 # ---------------------------------------------------------------------------
 
@@ -747,6 +830,97 @@ def test_ogd_envelope_has_required_fields():
 
 
 # ---------------------------------------------------------------------------
+# Stateless-HTTP-Modus (PR-7: SCALE-002/003)
+# ---------------------------------------------------------------------------
+
+
+def test_stateless_default_is_false():
+    """Ohne MCP_STATELESS_HTTP=1 ist Stateless-Modus aus."""
+    from meteoswiss_mcp.server import _STATELESS_HTTP, mcp
+
+    # Beim Modul-Import wurde der Wert eingefroren — der Test prüft die
+    # Default-Semantik, nicht die Laufzeit-Konfigurierbarkeit.
+    assert _STATELESS_HTTP is False
+    assert mcp.settings.stateless_http is False
+
+
+# ---------------------------------------------------------------------------
+# OpenTelemetry-Decorator (PR-7: OBS-006)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tool_decorator_records_span_attributes():
+    """_traced_tool setzt mcp.tool.name auf dem aktiven Span."""
+    from meteoswiss_mcp import server
+
+    seen: dict[str, object] = {}
+
+    class _RecordingSpan:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def set_attribute(self, k, v):
+            seen[k] = v
+
+        def record_exception(self, *args, **kwargs):
+            seen["exception"] = True
+
+    class _RecordingTracer:
+        def start_as_current_span(self, name):
+            seen["span_name"] = name
+            return _RecordingSpan()
+
+    monkeypatch_target = _RecordingTracer()
+    original = server._tracer
+    server._tracer = monkeypatch_target
+    try:
+        await server.meteo_stations(server.StationsInput(canton="ZH"))
+    finally:
+        server._tracer = original
+
+    assert seen["span_name"] == "tool.meteo_stations"
+    assert seen["mcp.tool.name"] == "meteo_stations"
+
+
+def test_noop_tracer_does_not_crash_without_otel():
+    """Ohne OTEL_EXPORTER_OTLP_ENDPOINT ist _tracer ein No-Op-Stub."""
+    from meteoswiss_mcp.server import _NoopTracer, _tracer
+
+    assert isinstance(_tracer, _NoopTracer)
+    with _tracer.start_as_current_span("dummy") as span:
+        span.set_attribute("foo", "bar")
+        span.record_exception(ValueError("test"))
+
+
+# ---------------------------------------------------------------------------
+# Tool-Docstrings haben strukturierte XML-Tags (PR-7: ARCH-002)
+# ---------------------------------------------------------------------------
+
+
+def test_all_tools_have_use_case_tag():
+    """Alle 6 Tools tragen <use_case>...</use_case> im Docstring."""
+    from meteoswiss_mcp import server
+
+    for name in (
+        "meteo_stations",
+        "meteo_current",
+        "meteo_forecast",
+        "meteo_school_check",
+        "meteo_climate_normals",
+        "meteo_warnings",
+    ):
+        fn = getattr(server, name)
+        doc = fn.__doc__ or ""
+        assert "<use_case>" in doc and "</use_case>" in doc, f"{name} fehlt <use_case>"
+        assert "<important_notes>" in doc, f"{name} fehlt <important_notes>"
+        assert "<example>" in doc, f"{name} fehlt <example>"
+
+
+# ---------------------------------------------------------------------------
 # Live-Tests (mit echten APIs)
 # ---------------------------------------------------------------------------
 
@@ -754,23 +928,27 @@ def test_ogd_envelope_has_required_fields():
 @pytest.mark.live
 @pytest.mark.asyncio
 async def test_live_geocode_zurich():
-    from meteoswiss_mcp.server import _geocode
+    from meteoswiss_mcp.server import _build_http_client, _geocode
 
-    lat, lon, name = await _geocode("Zürich")
+    async with _build_http_client() as client:
+        lat, lon, name, match = await _geocode(client, "Zürich")
     assert 47.0 < lat < 48.0
     assert 8.0 < lon < 9.0
     assert "Zürich" in name or "Zurich" in name
+    assert match == "exact"
 
 
 @pytest.mark.live
 @pytest.mark.asyncio
 async def test_live_geocode_leutschenbach():
-    from meteoswiss_mcp.server import _geocode
+    from meteoswiss_mcp.server import _build_http_client, _geocode
 
-    lat, lon, name = await _geocode("Leutschenbach Zürich")
+    async with _build_http_client() as client:
+        lat, lon, name, match = await _geocode(client, "Leutschenbach Zürich")
     # Oerlikon-Bereich
     assert 47.3 < lat < 47.5
     assert 8.4 < lon < 8.7
+    assert match in ("exact", "fuzzy")
 
 
 @pytest.mark.live

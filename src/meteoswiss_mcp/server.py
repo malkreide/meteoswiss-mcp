@@ -76,6 +76,95 @@ structlog.configure(
 
 logger = structlog.get_logger("meteoswiss_mcp")
 
+
+# ---------------------------------------------------------------------------
+# OpenTelemetry-Tracing (PR-7: OBS-006) — opt-in via OTEL_EXPORTER_OTLP_ENDPOINT
+# ---------------------------------------------------------------------------
+#
+# Aktivierung in Render / Container:
+#     pip install meteoswiss-mcp[otel]
+#     OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.example.com
+#     OTEL_SERVICE_NAME=meteoswiss-mcp
+#
+# Ohne ENV bleibt _tracer ein No-Op-Stub (kein Performance-Overhead, keine
+# Pflicht-Dependency). Tools rufen `_tracer.start_as_current_span(...)`
+# unverändert auf — der Stub akzeptiert die Signatur und macht nichts.
+
+
+class _NoopSpan:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def set_attribute(self, *args, **kwargs):
+        pass
+
+    def record_exception(self, *args, **kwargs):
+        pass
+
+
+class _NoopTracer:
+    def start_as_current_span(self, *args, **kwargs):
+        return _NoopSpan()
+
+
+_tracer: Any = _NoopTracer()
+
+
+def _traced_tool(name: str):
+    """Wrappt einen async Tool-Handler in einen OTel-Span.
+
+    Span-Attribute (OBS-006-Schema):
+        mcp.tool.name
+        mcp.tool.result.is_error
+    """
+    import functools
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            with _tracer.start_as_current_span(f"tool.{name}") as span:
+                span.set_attribute("mcp.tool.name", name)
+                try:
+                    return await fn(*args, **kwargs)
+                except Exception as exc:
+                    span.set_attribute("mcp.tool.result.is_error", True)
+                    span.record_exception(exc)
+                    raise
+
+        return wrapper
+
+    return decorator
+
+if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+    try:
+        from opentelemetry import trace as _ot_trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+        _resource = Resource.create(
+            {"service.name": os.environ.get("OTEL_SERVICE_NAME", "meteoswiss_mcp")}
+        )
+        _provider = TracerProvider(resource=_resource)
+        _provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+        _ot_trace.set_tracer_provider(_provider)
+        _tracer = _ot_trace.get_tracer("meteoswiss_mcp")
+        # httpx-Calls automatisch instrumentieren (alle 4 Tool-Endpoints)
+        HTTPXClientInstrumentor().instrument()
+        logger.info("otel_initialized", endpoint=os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"])
+    except ImportError:
+        logger.warning(
+            "otel_disabled",
+            reason="opentelemetry deps missing — install meteoswiss-mcp[otel]",
+        )
+
 # ---------------------------------------------------------------------------
 # Konstanten
 # ---------------------------------------------------------------------------
@@ -319,9 +408,15 @@ def _sanitize_error(exc: BaseException) -> str:
 # Server-Initialisierung
 # ---------------------------------------------------------------------------
 
+# Stateless-Modus (PR-7: SCALE-002 / SCALE-003) erlaubt Multi-Replica-Deploys
+# ohne Sticky-Session-Layer. Jeder HTTP-Request erzeugt eine neue MCP-Session,
+# was für read-only-Server wie diesen kein Datenverlust-Problem ist.
+_STATELESS_HTTP = os.environ.get("MCP_STATELESS_HTTP", "0") == "1"
+
 mcp = FastMCP(
     "meteoswiss_mcp",
     lifespan=app_lifespan,
+    stateless_http=_STATELESS_HTTP,
     instructions="""
 MCP-Server für Schweizer Wetter- und Klimadaten von MeteoSwiss.
 Bietet Zugriff auf SwissMetNet-Beobachtungen (10-Minuten-Intervall),
@@ -574,8 +669,20 @@ def _school_verdict(
     return "🟢", "Geeignet für Aussenaktivitäten"
 
 
-async def _geocode(client: httpx.AsyncClient, location: str) -> tuple[float, float, str]:
-    """Löst einen Ortsnamen in (lat, lon, display_name) auf."""
+async def _geocode(
+    client: httpx.AsyncClient, location: str
+) -> tuple[float, float, str, str]:
+    """Löst einen Ortsnamen in (lat, lon, display_name, match_type).
+
+    match_type:
+        "exact"  — erster Treffer der DE-Suche
+        "fuzzy"  — Fallback ohne Sprache + count=5, dann bester Hit
+        "none"   — keine Treffer (wirft ValueError, wie zuvor)
+
+    ARCH-003: kein stilles «not found» mehr — bei Misserfolg wird mit relaxter
+    Suche nachgehakt, bevor der Fehler eskaliert wird.
+    """
+    # Versuch 1: exakter Match auf Deutsch
     resp = await client.get(
         GEOCODING_BASE,
         params={"name": location, "count": 1, "language": "de", "format": "json"},
@@ -583,15 +690,29 @@ async def _geocode(client: httpx.AsyncClient, location: str) -> tuple[float, flo
     resp.raise_for_status()
     data = resp.json()
     results = data.get("results", [])
+    match_type = "exact"
+
+    if not results:
+        # Versuch 2 (fuzzy): ohne language-Restriktion, mehrere Kandidaten
+        resp2 = await client.get(
+            GEOCODING_BASE,
+            params={"name": location, "count": 5, "format": "json"},
+        )
+        resp2.raise_for_status()
+        data = resp2.json()
+        results = data.get("results", [])
+        match_type = "fuzzy"
+
     if not results:
         raise ValueError(f"Ort '{location}' nicht gefunden.")
+
     r = results[0]
     display = r.get("name", location)
     admin = r.get("admin1", "")
     country = r.get("country_code", "")
     if admin:
         display = f"{display}, {admin} ({country})"
-    return float(r["latitude"]), float(r["longitude"]), display
+    return float(r["latitude"]), float(r["longitude"]), display, match_type
 
 
 async def _fetch_open_meteo_forecast(
@@ -758,18 +879,27 @@ MONTHS_DE = [
         "openWorldHint": False,
     },
 )
+@_traced_tool("meteo_stations")
 async def meteo_stations(params: StationsInput) -> str:
-    """
-    Listet SwissMetNet (SMN)-Messstationen auf, die in diesem Server eingebettet sind.
+    """<use_case>
+    Liefert eine Übersicht der SwissMetNet (SMN)-Messstationen, die in diesem
+    Server eingebettet sind. Nützlich, um Stationskürzel für meteo_current
+    oder meteo_climate_normals zu finden.
+    </use_case>
 
-    SMN ist das automatische Bodenmessnetz von MeteoSwiss mit über 160 Stationen.
-    Dieser Server enthält eine kuratierte Auswahl von ~20 Stationen mit Relevanz
-    für städtische Planung, Schulen und Bildungseinrichtungen.
+    <important_notes>
+    - Kuratierte Auswahl (~20 Stationen) mit Schul-/Stadtplanungs-Fokus
+    - Datenquelle: MeteoSwiss SMN-Katalog (160+ Stationen total)
+    - Lizenz: CC BY 4.0 – Quelle: MeteoSchweiz
+    </important_notes>
 
-    Stationskürzel werden für meteo_current und meteo_climate_normals benötigt.
+    <example>
+    meteo_stations(canton="ZH")
+    → KLO, SMA, REH, REC, WAE
+    </example>
 
     Schul-Tipp: Station REH (Zürich/Affoltern) ist die nächste SMN-Station
-    zum Schulhaus Leutschenbach und zum Schulkreis Schwamendingen.
+    zum Schulhaus Leutschenbach.
 
     Args:
         params (StationsInput):
@@ -833,18 +963,24 @@ async def meteo_stations(params: StationsInput) -> str:
         "openWorldHint": True,
     },
 )
+@_traced_tool("meteo_current")
 async def meteo_current(params: CurrentInput, ctx: Context | None = None) -> str:
-    """
-    Ruft aktuelle Wettermesswerte einer SwissMetNet-Station ab (10-Minuten-Granularität).
+    """<use_case>
+    Aktuelle 10-Minuten-Wettermesswerte einer SwissMetNet-Station abrufen
+    (Temperatur, Niederschlag, Sonnenschein, Wind, Feuchte, Druck).
+    </use_case>
 
-    Daten werden über die BGDI STAC API bezogen: Jede Station hat eine CSV-Datei
-    im «now»-Verzeichnis, die alle 10 Minuten aktualisiert wird.
+    <important_notes>
+    - Granularität: 10-Minuten-Werte, letzte ~6 Beobachtungen
+    - Quelle: BGDI STAC API (data.geo.admin.ch)
+    - Live-Daten — Tool ist NICHT idempotent
+    - Bei Upstream-Ausfall: Fallback mit Direktlinks statt Hard-Fail
+    </important_notes>
 
-    Messgrössen: Temperatur, Niederschlag, Sonnenschein, Wind, Feuchte, Druck.
-
-    Schul-Beispiel:
-      «Wie war das Wetter beim Schulhaus Leutschenbach jetzt gerade?»
-      → meteo_current(station='REH')  # Zürich/Affoltern, nächste SMN-Station
+    <example>
+    meteo_current(station="REH")  → Zürich/Affoltern (nächste SMN-Station
+                                     zum Schulhaus Leutschenbach)
+    </example>
 
     Args:
         params (CurrentInput):
@@ -947,20 +1083,27 @@ async def meteo_current(params: CurrentInput, ctx: Context | None = None) -> str
         "openWorldHint": True,
     },
 )
+@_traced_tool("meteo_forecast")
 async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> str:
-    """
-    Ruft eine Wetterprognose auf Basis des MeteoSwiss ICON-CH1/CH2-EPS-Modells ab.
+    """<use_case>
+    1-16 Tage Wetterprognose für einen Ortsnamen oder Koordinaten — basierend
+    auf dem MeteoSwiss-ICON-Modell (1-2 km Auflösung). Liefert Tageswerte
+    (Temperatur Min/Max, Niederschlag, Wind, UV, Sonnenstunden, WMO-Code)
+    und optional Stundenwerte.
+    </use_case>
 
-    Daten werden über Open-Meteo bezogen, das die MeteoSwiss ICON-Modellausgabe
-    mit 1–2 km Auflösung bereitstellt. Prognosen bis 16 Tage.
+    <important_notes>
+    - Modell: MeteoSwiss ICON-CH1/CH2-EPS via Open-Meteo
+    - location wird geokodiert (Fuzzy-Fallback bei Misserfolg); lat/lon
+      überschreibt location und spart einen HTTP-Roundtrip
+    - Stündliche Daten füllen die ersten 48 Stunden, nicht den vollen Range
+    - Bei Upstream-Ausfall: Direktlinks statt Hard-Fail
+    </important_notes>
 
-    Täglich: Temperatur Min/Max, Niederschlag, Windspitze, UV-Index,
-             Sonnenscheindauer, Sonnenauf/-untergang, WMO-Wettercode.
-    Stündlich (optional): Temperatur, Niederschlag, Wind, Bewölkung, UV.
-
-    Schul-Beispiel:
-      «Wie wird das Wetter beim Schulhaus Leutschenbach nächsten Dienstag?»
-      → meteo_forecast(location='Schulhaus Leutschenbach Zürich', days=7)
+    <example>
+    meteo_forecast(location="Schulhaus Leutschenbach Zürich", days=7)
+    meteo_forecast(latitude=47.3769, longitude=8.5417, days=3, hourly=True)
+    </example>
 
     Args:
         params (ForecastInput):
@@ -982,7 +1125,7 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
             if ctx is not None:
                 await ctx.info(f"Geokodiere '{params.location}'")
             try:
-                lat, lon, display_name = await _geocode(client, params.location)
+                lat, lon, display_name, _match = await _geocode(client, params.location)
             except Exception as exc:
                 logger.warning(
                     "upstream_failed",
@@ -1125,27 +1268,30 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
         "openWorldHint": True,
     },
 )
+@_traced_tool("meteo_school_check")
 async def meteo_school_check(
     params: SchoolCheckInput, ctx: Context | None = None
 ) -> str:
-    """
-    Bewertet das Wetter auf Eignung für Schulveranstaltungen im Freien.
+    """<use_case>
+    Aggregiert Geocoding + 7-Tage-Forecast + Schwellenwert-Check zu einer
+    Ampel-Bewertung (🟢/🟡/🔴) für Schulveranstaltungen im Freien. Ein
+    Tool-Call ersetzt die Kombi meteo_forecast + manuelle Bewertung.
+    </use_case>
 
-    Gibt eine 🟢/🟡/🔴-Ampel pro Tag aus:
-    - 🟢 Geeignet: Gutes Wetter, alle Parameter im grünen Bereich
-    - 🟡 Bedingt: Leichte Einschränkungen (z.B. UV, leichte Bewölkung)
-    - 🔴 Nicht geeignet: Regen, Gewitter, Frost, Hitze, Sturm
-
+    <important_notes>
     Schwellenwerte:
-    - Temperatur: 5–33 °C
+    - Temperatur: 5–33 °C (sonst zu kalt / zu heiss)
     - Niederschlag: < 1.5 mm/Tag
     - Wind: < 50 km/h
-    - UV-Index ≥ 6: Warnung (Sonnenschutz obligatorisch)
+    - UV-Index ≥ 6: Warnung (Sonnenschutz)
+    Quelle: SUVA / BAG / MeteoSchweiz-Warnklassen.
+    Bei date-Parameter: nur dieser eine Tag wird zurückgegeben.
+    </important_notes>
 
-    Schul-Beispiel:
-      «Welche Tage eignen sich nächste Woche für den Sporttag beim
-       Schulhaus Leutschenbach?»
-      → meteo_school_check(location='Zürich Oerlikon', activity='Sporttag')
+    <example>
+    meteo_school_check(location="Zürich Oerlikon", activity="Sporttag")
+    meteo_school_check(location="Lugano", date="2026-06-15", activity="Schulreise")
+    </example>
 
     Args:
         params (SchoolCheckInput):
@@ -1161,7 +1307,7 @@ async def meteo_school_check(
         if ctx is not None:
             await ctx.info(f"Geokodiere '{params.location}'")
         try:
-            lat, lon, display_name = await _geocode(client, params.location)
+            lat, lon, display_name, _match = await _geocode(client, params.location)
         except Exception as exc:
             logger.warning(
                 "upstream_failed",
@@ -1270,18 +1416,26 @@ async def meteo_school_check(
         "openWorldHint": False,
     },
 )
+@_traced_tool("meteo_climate_normals")
 async def meteo_climate_normals(params: ClimateNormalsInput) -> str:
-    """
-    Liefert monatliche Klimanormwerte 1991–2020 für eine SMN-Station.
+    """<use_case>
+    Monatliche 30-Jahres-Klimanormwerte (Temperatur ∅, Niederschlag,
+    Sonnenstunden) für eine MeteoSwiss-Station. Referenz für «typisches
+    Wetter» — Schuljahresplanung, Veranstaltungs-Budgetierung, Vergleich
+    mit aktuellen Messwerten.
+    </use_case>
 
-    Normwerte sind 30-jährige Mittelwerte, die als Referenz für «typisches Wetter»
-    eines Ortes dienen. Nützlich für Schuljahresplanung, Budgetierung von
-    Veranstaltungen und Vergleiche mit aktuellen Messwerten.
+    <important_notes>
+    - Periode: 1991–2020 (WMO-Standard)
+    - Eingebettete Normwerte verfügbar: KLO, SMA, BER, LUG, GVE
+    - Für andere Stationen: Tool gibt Liste verfügbarer Codes + opendata.swiss-Link
+    - Statische Daten — Tool ist idempotent, kein Netzwerk-Roundtrip
+    </important_notes>
 
-    Enthält: Monatsmitteltemperatur, Monatsniederschlag, Sonnenscheinstunden.
-
-    Hinweis: Eingebettete Normwerte für KLO, SMA, BER, LUG, GVE.
-    Für weitere Stationen: opendata.swiss MeteoSwiss Klimanormwerte.
+    <example>
+    meteo_climate_normals(station="KLO")  → Zürich/Kloten Jahresgang
+    meteo_climate_normals(station="LUG", response_format="json")
+    </example>
 
     Args:
         params (ClimateNormalsInput):
@@ -1376,20 +1530,25 @@ async def meteo_climate_normals(params: ClimateNormalsInput) -> str:
         "openWorldHint": True,
     },
 )
+@_traced_tool("meteo_warnings")
 async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> str:
-    """
-    Ruft aktuelle Wetterwarnungen von MeteoSwiss ab.
+    """<use_case>
+    Aktuelle MeteoSwiss-Wetterwarnungen (Gewitter, Starkregen, Sturm,
+    Schnee, Hitze, Frost, ...) auflisten. Liefert die offizielle Warnkarte
+    + MeteoAlarm-Link + opendata.swiss-Datensätze.
+    </use_case>
 
-    MeteoSwiss gibt Warnungen auf einer 5-stufigen Skala aus:
-    1=Keine, 2=Gering, 3=Mässig, 4=Stark, 5=Sehr stark.
-    Warntypen: Gewitter, Starkregen, Sturm, Schnee, Eis, Hitze, Frost,
-               Nebel, Waldbrand, Glatteis.
+    <important_notes>
+    - MeteoSwiss Warnings-API als REST ist erst ab OGD Phase 2 (geplant
+      Q2 2026) verfügbar; bis dahin liefert dieses Tool den Linkstack.
+    - Warnstufen-Skala: 1=Keine, 2=Gering, 3=Mässig, 4=Stark, 5=Sehr stark.
+    - Bei aktiven Warnungen Stufe 4+: Aussenveranstaltungen verschieben.
+    </important_notes>
 
-    Wichtig für Schulplanung: Aktive Warnungen → Aussenveranstaltungen verschieben.
-
-    Da die MeteoSwiss Warnings-API noch nicht als offizielle REST-API
-    verfügbar ist (geplant Q2 2026+), liefert dieses Tool direkte Links
-    zur offiziellen Warnungsseite und zum CAP-Feed.
+    <example>
+    meteo_warnings(canton="ZH")  → Linkstack für Kanton Zürich
+    meteo_warnings()             → ganze Schweiz
+    </example>
 
     Args:
         params (WarningsInput):

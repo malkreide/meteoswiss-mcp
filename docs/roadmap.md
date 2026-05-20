@@ -22,9 +22,9 @@ Stand: nach PR-1..PR-5. Vollständige Findings: `audits/run/AUDIT_REPORT.md`.
 | HTTP-CORS + API-Key (SDK-004/SEC-009/SEC-013) | ✅ pass |
 | Structured Logging (OBS-001/OBS-003/OBS-004) | ✅ pass |
 | Container + Resource-Limits (SEC-007/SCALE-004/SCALE-006) | ✅ pass |
-| Multi-Replica Sticky-Sessions (SCALE-002/SCALE-003) | 🟡 offen — nur relevant bei `numInstances > 1` |
-| OpenTelemetry-Tracing (OBS-006) | 🟡 offen — nice-to-have für Phase 2 |
-| Tool-Hash-Pinning (SEC-022) | 🟡 in PR-6 |
+| Multi-Replica via Stateless-HTTP (SCALE-002/SCALE-003) | ✅ pass — opt-in via `MCP_STATELESS_HTTP=1` |
+| OpenTelemetry-Tracing (OBS-006) | ✅ pass — opt-in via `OTEL_EXPORTER_OTLP_ENDPOINT` + `[otel]`-extras |
+| Tool-Hash-Pinning (SEC-022) | ✅ pass — `scripts/tool_hashes.py` + CI-Guard |
 | Pre-Flight-Tool-Poisoning-Detection (SEC-015) | 🟡 offen — Gateway-Pattern, nicht Server |
 
 ## Phasen-Übergangs-Kriterien
