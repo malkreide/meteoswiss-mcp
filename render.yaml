@@ -1,0 +1,30 @@
+# Render.com Blueprint für meteoswiss-mcp (PR-4: SCALE-006 Resource-Limits).
+#
+# Deploy: https://render.com/docs/blueprint-spec
+# - Plan `starter` = 512 MB RAM / 0.5 vCPU (siehe https://render.com/pricing).
+# - Health-Endpoint /health stoppt fehlerhafte Deploys, ohne dass eine
+#   Upstream-API mit Pings belastet wird.
+# - autoDeploy=false: Production-Deploys sind bewusst manuell, damit
+#   CI-grüne PRs nicht automatisch live gehen.
+
+services:
+  - type: web
+    name: meteoswiss-mcp
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: frankfurt
+    healthCheckPath: /health
+    autoDeploy: false
+    numInstances: 1   # SCALE-002/003 explizit single-instance bis Sticky-Sessions implementiert sind
+    envVars:
+      - key: MCP_TRANSPORT
+        value: streamable-http
+      - key: MCP_HOST
+        value: 0.0.0.0
+      - key: MCP_ALLOW_ANY_HOST
+        value: "1"
+      - key: MCP_PORT
+        value: "8000"
+      - key: MCP_LOG_LEVEL
+        value: INFO

@@ -1480,6 +1480,23 @@ async def get_wmo_codes_resource() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Health Endpoint (PR-4: SCALE-004 Container HEALTHCHECK + Render healthCheckPath)
+# ---------------------------------------------------------------------------
+
+
+@mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
+async def healthcheck(request):  # type: ignore[no-untyped-def]
+    """Liveness-Probe für Container-Orchestrators (Render/k8s/Docker HEALTHCHECK).
+
+    Bewusst trivial: gibt 200 OK zurück, sobald die ASGI-App läuft.
+    Keine Upstream-Pings — sonst macht jeder Probe einen Open-Meteo-Call.
+    """
+    from starlette.responses import JSONResponse
+
+    return JSONResponse({"status": "ok", "service": "meteoswiss-mcp"})
+
+
+# ---------------------------------------------------------------------------
 # Entry Point  (PR-1: SEC-006 MCP_TRANSPORT-Env, SEC-016 MCP_HOST default 127.0.0.1)
 # ---------------------------------------------------------------------------
 

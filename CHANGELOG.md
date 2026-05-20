@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SEC-007 / SCALE-004 / SCALE-006** Multi-Stage-`Dockerfile` (non-root user `mcp:10001`, `HEALTHCHECK`) + `render.yaml`-Blueprint (plan starter, healthCheckPath, explizit `numInstances: 1`). `.dockerignore` schliesst Audits/Assets/Tests aus.
+- **SCALE-004** Health-Endpoint `GET /health` via FastMCP `custom_route` — trivialer 200-OK ohne Upstream-Pings. Test deckt Statuscode + Body ab.
 - **OBS-003** Structured Logging via `structlog`: JSON-Events auf `stderr` (stdio-safe). Events: `tool_invoked`, `upstream_failed`, `egress_blocked`. Log-Level via `MCP_LOG_LEVEL`-ENV (default `INFO`).
 - **OBS-004** CI-Guard `ruff` + `grep -rnE '^\s*print\s*\(' src/` blockt regressionen mit `print()`-Calls in src/.
 - 3 neue respx/monkeypatch-basierte Tests verifizieren die Log-Events.

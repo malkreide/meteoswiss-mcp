@@ -94,6 +94,21 @@ MCP_TRANSPORT=streamable-http meteoswiss-mcp
 MCP_TRANSPORT=streamable-http MCP_HOST=0.0.0.0 MCP_ALLOW_ANY_HOST=1 meteoswiss-mcp
 ```
 
+#### Docker / Render
+
+Das Repo enthält ein produktionsfertiges **Multi-Stage-Dockerfile** (non-root user, HEALTHCHECK) und ein **`render.yaml`**-Blueprint:
+
+```bash
+# Lokal bauen + testen
+docker build -t meteoswiss-mcp .
+docker run --rm -p 8000:8000 meteoswiss-mcp
+curl http://127.0.0.1:8000/health   # → {"status":"ok","service":"meteoswiss-mcp"}
+```
+
+Auf Render: «New → Blueprint» → Repo auswählen. Defaults (Plan `starter`, Frankfurt, single-instance) sind im `render.yaml` vorgegeben.
+
+**Wichtig:** `numInstances: 1` ist bewusst gesetzt — Sticky-Session-Routing für Multi-Replica (Audit SCALE-002/003) ist noch nicht implementiert.
+
 #### Structured Logging
 
 Alle Tool-Invocations, Upstream-Failures und Egress-Blocks werden als JSON-Events auf `stderr` ausgegeben (stdio-Transport-sicher). Beispiel:
