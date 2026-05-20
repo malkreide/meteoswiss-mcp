@@ -7,7 +7,7 @@ Diese Roadmap dokumentiert die Phasen-Architektur (OPS-003 aus dem [MCP-Audit](h
 | Phase | Status | Tools / Features | Datenklasse | Auth | Voraussetzungen |
 |---|---|---|---|---|---|
 | **1 — Public Read** | ✅ aktiv | `meteo_stations`, `meteo_current`, `meteo_forecast`, `meteo_school_check`, `meteo_climate_normals`, `meteo_warnings` | Public Open Data (CC BY 4.0) | `none` (stdio) bzw. optional API-Key (HTTP) | erfüllt |
-| **2 — Cached + Mocked** | 🟡 geplant | TTL-Caching (httpx-cache oder lokaler Disk-Cache); `respx`-Mock-Tests für jeden HTTP-Pfad; nightly Live-Test-Workflow | Public Open Data | unverändert | OBS-006 OTLP-Tracing optional |
+| **2 — Cached + Mocked** | ✅ aktiv | TTL-Caching pro Upstream (`MCP_CACHE_TTL_*`); `MCP_WARNINGS_API_URL` für strukturierte Warnings; `MCP_CLIMATE_NORMALS_PATH` für Stationserweiterung | Public Open Data | unverändert | OBS-006 OTLP-Tracing optional |
 | **3 — Write-capable** | ❌ nicht geplant | Write-Operationen sind ausserhalb des Server-Mandats. Falls je nötig: separater Server mit OAuth-Proxy + HITL. | n/a | n/a | n/a |
 
 ## Aktueller Sicherheitsstand (Audit-Verfolgung)

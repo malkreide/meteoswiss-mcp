@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 2 — Caching + Data Extension)
+
+- **TTL-Cache** für alle Upstream-Calls (STAC / Open-Meteo / Geocoding / opendata.swiss / Warnings-API). asyncio-safe via Per-Key-Locks (verhindert Thundering-Herd). Per-Endpoint-TTLs via ENV (`MCP_CACHE_TTL_*`), default 5 min für Live-Daten, 1 h für Stammdaten. Deaktivierbar via `MCP_CACHE_ENABLED=0`.
+- **`MCP_CLIMATE_NORMALS_PATH`** lädt zusätzliche Klimanormwerte aus einer JSON-Datei zur Laufzeit. Die eingebetteten 5 Stationen werden mit dem File gemerged; Datei-Werte gewinnen bei Konflikten. Validiert pro Eintrag: 12-elementige Monatslisten, sonst geloggt + geskippt. Beispiel: `data/climate-normals.example.json`.
+- **`MCP_WARNINGS_API_URL`** aktiviert die strukturierte MeteoSwiss-Warnings-API in `meteo_warnings`. Tool fetcht die URL, normalisiert das Schema (GeoJSON / `warnings`-Array / `items`), filtert nach Kanton und rendert eine Tabelle mit Stufe / Typ / Region / Gültigkeit. Linkstack bleibt als Begleit-Info. Ohne ENV: bisheriges Verhalten (Linkstack only).
+
+### Changed
+
+- `_geocode`, `_fetch_open_meteo_forecast`, `_fetch_stac_now_csv` und der opendata.swiss-Call in `meteo_warnings` gehen jetzt über `_cached(...)`. Cache-Schlüssel: gerundete Koordinaten / Stationscode / lowercase-Locationsname.
+
 ## [0.2.0] - 2026-05-20
 
 Komplette Umsetzung des [mcp-audit-skill](https://github.com/malkreide/mcp-audit-skill)-Reviews:

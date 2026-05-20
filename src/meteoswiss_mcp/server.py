@@ -32,6 +32,8 @@ import logging
 import os
 import re
 import sys
+import time as _time
+from asyncio import Lock as _AsyncioLock
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -338,6 +340,161 @@ async def _validate_request_hook(request: httpx.Request) -> None:
             reason=str(exc),
         )
         raise
+
+
+# ---------------------------------------------------------------------------
+# TTL-Cache (Phase 2: reduziert Upstream-Last, asyncio-safe)
+# ---------------------------------------------------------------------------
+#
+# Minimaler in-memory Cache. Bewusst keine extra Dependency:
+# - Schlüssel ist ein Tuple aus Endpoint-Name + Params (Hashable).
+# - Value enthält fetched_at (ISO-Timestamp) + payload.
+# - Wenn Eintrag stale ist, wird er beim Zugriff entfernt und der Caller
+#   refetcht. asyncio.Lock pro Schlüssel verhindert thundering-herd.
+#
+# Per-Endpoint-TTLs aus ENV überschreibbar; Defaults sind konservativ
+# (= "wenig schneller, niemals zu alt").
+
+_CACHE_TTL = {
+    "stac_item":      int(os.environ.get("MCP_CACHE_TTL_STAC", "300")),       # 5 min
+    "open_meteo":     int(os.environ.get("MCP_CACHE_TTL_OPEN_METEO", "600")), # 10 min
+    "geocoding":      int(os.environ.get("MCP_CACHE_TTL_GEOCODING", "3600")), # 1 h
+    "opendata_swiss": int(os.environ.get("MCP_CACHE_TTL_OPENDATA", "3600")),  # 1 h
+    "warnings_api":   int(os.environ.get("MCP_CACHE_TTL_WARNINGS", "300")),   # 5 min
+    "stac_climate":   int(os.environ.get("MCP_CACHE_TTL_STAC_CLIMATE", "86400")),  # 24 h
+}
+_CACHE_ENABLED = os.environ.get("MCP_CACHE_ENABLED", "1") == "1"
+
+_cache_store: dict[tuple, tuple[float, Any]] = {}
+_cache_locks: dict[tuple, _AsyncioLock] = {}
+
+
+def _cache_lock(key: tuple) -> _AsyncioLock:
+    lock = _cache_locks.get(key)
+    if lock is None:
+        lock = _AsyncioLock()
+        _cache_locks[key] = lock
+    return lock
+
+
+async def _cached(category: str, key: tuple, fetch):
+    """Liefert gecachten Wert oder ruft `fetch()` (async) auf und cached das Ergebnis.
+
+    `key` ist ein zur category gehöriges Tuple, das den Request eindeutig
+    identifiziert (z.B. ("stac_item", "klo")).
+    """
+    if not _CACHE_ENABLED:
+        return await fetch()
+
+    ttl = _CACHE_TTL.get(category, 300)
+    full_key = (category, *key)
+    now = _time.time()
+
+    entry = _cache_store.get(full_key)
+    if entry is not None:
+        expires_at, value = entry
+        if expires_at > now:
+            logger.debug("cache_hit", category=category)
+            return value
+        _cache_store.pop(full_key, None)
+
+    async with _cache_lock(full_key):
+        # Double-checked: anderer Coroutine könnte gerade gefüllt haben
+        entry = _cache_store.get(full_key)
+        if entry is not None:
+            expires_at, value = entry
+            if expires_at > now:
+                return value
+
+        value = await fetch()
+        _cache_store[full_key] = (now + ttl, value)
+        logger.debug("cache_miss", category=category, ttl=ttl)
+        return value
+
+
+def _cache_clear() -> None:
+    """Leert den gesamten Cache — primär für Tests."""
+    _cache_store.clear()
+    _cache_locks.clear()
+
+
+def _normalize_warnings_response(
+    raw: Any, canton_filter: str
+) -> list[dict[str, Any]]:
+    """Bringt unterschiedliche Warnings-API-Schemas auf ein gemeinsames Format.
+
+    Erwartete Felder pro Warnung (best-effort über mehrere Schemata):
+        type      — z.B. "thunderstorm" / "heavy_rain"
+        level     — 1..5 (MeteoSwiss-Skala)
+        valid_from / valid_until — ISO-Timestamps
+        regions   — Liste Kantons-/Regions-Codes
+        text      — kurze Beschreibung
+
+    Akzeptierte Eingabe-Formen:
+    - {"warnings": [...]}     — Standard-Schema (geplante MeteoSwiss-API)
+    - {"features": [...]}     — GeoJSON-style (CAP-konform)
+    - [...]                   — direkte Liste
+    - {"items": [...]}        — STAC-style
+
+    Unbekannte Felder werden als "extra" durchgereicht; nichts wird verworfen.
+    """
+    items: list[Any]
+    if isinstance(raw, list):
+        items = raw
+    elif isinstance(raw, dict):
+        items = raw.get("warnings") or raw.get("features") or raw.get("items") or []
+    else:
+        items = []
+
+    normalized: list[dict[str, Any]] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        props = it.get("properties", it)  # GeoJSON-Features haben "properties"
+        regions = (
+            props.get("regions")
+            or props.get("canton")
+            or props.get("cantons")
+            or []
+        )
+        if isinstance(regions, str):
+            regions = [regions]
+        regions_upper = [str(r).upper() for r in regions]
+
+        if canton_filter and canton_filter not in regions_upper:
+            continue
+
+        normalized.append(
+            {
+                "type": props.get("type") or props.get("warning_type") or "unknown",
+                "level": props.get("level") or props.get("severity"),
+                "valid_from": props.get("valid_from") or props.get("from"),
+                "valid_until": props.get("valid_until") or props.get("until"),
+                "regions": regions_upper,
+                "text": props.get("text") or props.get("description") or "",
+                "extra": {
+                    k: v
+                    for k, v in props.items()
+                    if k
+                    not in {
+                        "type",
+                        "warning_type",
+                        "level",
+                        "severity",
+                        "valid_from",
+                        "from",
+                        "valid_until",
+                        "until",
+                        "regions",
+                        "canton",
+                        "cantons",
+                        "text",
+                        "description",
+                    }
+                },
+            }
+        )
+    return normalized
 
 
 # ---------------------------------------------------------------------------
@@ -681,38 +838,45 @@ async def _geocode(
 
     ARCH-003: kein stilles «not found» mehr — bei Misserfolg wird mit relaxter
     Suche nachgehakt, bevor der Fehler eskaliert wird.
+
+    Ergebnis ist gecached (TTL: MCP_CACHE_TTL_GEOCODING, default 1 h) — Orte
+    bewegen sich selten.
     """
-    # Versuch 1: exakter Match auf Deutsch
-    resp = await client.get(
-        GEOCODING_BASE,
-        params={"name": location, "count": 1, "language": "de", "format": "json"},
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    results = data.get("results", [])
-    match_type = "exact"
 
-    if not results:
-        # Versuch 2 (fuzzy): ohne language-Restriktion, mehrere Kandidaten
-        resp2 = await client.get(
+    async def _do_fetch():
+        # Versuch 1: exakter Match auf Deutsch
+        resp = await client.get(
             GEOCODING_BASE,
-            params={"name": location, "count": 5, "format": "json"},
+            params={"name": location, "count": 1, "language": "de", "format": "json"},
         )
-        resp2.raise_for_status()
-        data = resp2.json()
-        results = data.get("results", [])
-        match_type = "fuzzy"
+        resp.raise_for_status()
+        d = resp.json()
+        rs = d.get("results", [])
+        m = "exact"
 
-    if not results:
-        raise ValueError(f"Ort '{location}' nicht gefunden.")
+        if not rs:
+            # Versuch 2 (fuzzy): ohne language-Restriktion, mehrere Kandidaten
+            resp2 = await client.get(
+                GEOCODING_BASE,
+                params={"name": location, "count": 5, "format": "json"},
+            )
+            resp2.raise_for_status()
+            d = resp2.json()
+            rs = d.get("results", [])
+            m = "fuzzy"
 
-    r = results[0]
-    display = r.get("name", location)
-    admin = r.get("admin1", "")
-    country = r.get("country_code", "")
-    if admin:
-        display = f"{display}, {admin} ({country})"
-    return float(r["latitude"]), float(r["longitude"]), display, match_type
+        if not rs:
+            raise ValueError(f"Ort '{location}' nicht gefunden.")
+
+        r = rs[0]
+        display = r.get("name", location)
+        admin = r.get("admin1", "")
+        country = r.get("country_code", "")
+        if admin:
+            display = f"{display}, {admin} ({country})"
+        return float(r["latitude"]), float(r["longitude"]), display, m
+
+    return await _cached("geocoding", (location.lower().strip(),), _do_fetch)
 
 
 async def _fetch_open_meteo_forecast(
@@ -722,7 +886,10 @@ async def _fetch_open_meteo_forecast(
     days: int,
     hourly: bool,
 ) -> dict[str, Any]:
-    """Ruft MeteoSwiss ICON-Prognose von Open-Meteo ab."""
+    """Ruft MeteoSwiss ICON-Prognose von Open-Meteo ab.
+
+    Gecached (TTL: MCP_CACHE_TTL_OPEN_METEO, default 10 min).
+    """
     daily_vars = [
         "temperature_2m_max",
         "temperature_2m_min",
@@ -748,9 +915,20 @@ async def _fetch_open_meteo_forecast(
             "temperature_2m,precipitation,windspeed_10m,weathercode,"
             "cloudcover,uv_index,relative_humidity_2m"
         )
-    resp = await client.get(OPEN_METEO_BASE, params=params)
-    resp.raise_for_status()
-    return resp.json()
+
+    async def _do_fetch():
+        resp = await client.get(OPEN_METEO_BASE, params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    # Cache-Key: gerundete Koordinaten + days + hourly
+    # (Open-Meteo gibt für gleiche Stelle gleiche Daten zurück; sub-km-Drift
+    # ist für Cache-Granularität irrelevant.)
+    return await _cached(
+        "open_meteo",
+        (round(lat, 3), round(lon, 3), days, bool(hourly)),
+        _do_fetch,
+    )
 
 
 async def _fetch_stac_now_csv(
@@ -759,42 +937,52 @@ async def _fetch_stac_now_csv(
     """
     Lädt die neueste 10-Minuten-CSV einer SMN-Station via STAC API.
     Gibt die letzten Zeilen als Liste von Dictionaries zurück.
+
+    Gecached (TTL: MCP_CACHE_TTL_STAC, default 5 min). MeteoSwiss-SMN-Daten
+    werden alle 10 Minuten aktualisiert — 5 min Cache reduziert die Last,
+    ohne dass die Daten zu stale werden.
     """
     station_lower = station.lower()
-    # STAC Item für die Station abrufen
-    stac_item_url = (
-        f"{STAC_BASE}/collections/{SMN_COLLECTION}/items/"
-        f"ch.meteoschweiz.ogd-smn-{station_lower}"
-    )
-    resp = await client.get(stac_item_url)
-    resp.raise_for_status()
-    item = resp.json()
 
-    # Asset-URL für die "now"-Datei finden (10-Minuten-Werte, neueste)
-    assets = item.get("assets", {})
-    now_url: str | None = None
+    async def _do_fetch():
+        # STAC Item für die Station abrufen
+        stac_item_url = (
+            f"{STAC_BASE}/collections/{SMN_COLLECTION}/items/"
+            f"ch.meteoschweiz.ogd-smn-{station_lower}"
+        )
+        resp = await client.get(stac_item_url)
+        resp.raise_for_status()
+        item = resp.json()
 
-    # Suche nach dem "now"-Asset (10-Minuten-Granularität)
-    for key, asset in assets.items():
-        href = asset.get("href", "")
-        if "/now/" in href and "_t_" in href and href.endswith(".csv"):
-            now_url = href
-            break
+        # Asset-URL für die "now"-Datei finden (10-Minuten-Werte, neueste)
+        assets = item.get("assets", {})
+        now_url: str | None = None
 
-    # Fallback: erstes CSV-Asset nehmen
-    if not now_url:
-        for key, asset in assets.items():
+        # Suche nach dem "now"-Asset (10-Minuten-Granularität)
+        for _key, asset in assets.items():
             href = asset.get("href", "")
-            if href.endswith(".csv"):
+            if "/now/" in href and "_t_" in href and href.endswith(".csv"):
                 now_url = href
                 break
 
-    if not now_url:
-        raise ValueError(f"Kein CSV-Asset für Station '{station}' in STAC gefunden.")
+        # Fallback: erstes CSV-Asset nehmen
+        if not now_url:
+            for _key, asset in assets.items():
+                href = asset.get("href", "")
+                if href.endswith(".csv"):
+                    now_url = href
+                    break
 
-    resp = await client.get(now_url)
-    resp.raise_for_status()
-    content = resp.text
+        if not now_url:
+            raise ValueError(
+                f"Kein CSV-Asset für Station '{station}' in STAC gefunden."
+            )
+
+        resp_csv = await client.get(now_url)
+        resp_csv.raise_for_status()
+        return resp_csv.text
+
+    content = await _cached("stac_item", (station_lower,), _do_fetch)
 
     # CSV parsen (MeteoSwiss nutzt Semikolon als Trennzeichen)
     lines = content.strip().splitlines()
@@ -862,6 +1050,77 @@ MONTHS_DE = [
     "Januar", "Februar", "März", "April", "Mai", "Juni",
     "Juli", "August", "September", "Oktober", "November", "Dezember",
 ]
+
+
+def _load_extra_climate_normals() -> dict[str, dict[str, list[float]]]:
+    """Lädt zusätzliche Klimanormwerte aus einer JSON-Datei (MCP_CLIMATE_NORMALS_PATH).
+
+    Format der JSON-Datei (gleich wie eingebettete CLIMATE_NORMALS):
+        {
+          "DAV": {
+            "temp_mean":  [-5.0, ...],   # 12 Monatswerte
+            "precip_mm":  [...],
+            "sunshine_h": [...]
+          },
+          ...
+        }
+
+    Validation:
+    - Werte müssen 12-elementige Listen sein
+    - Pro Station mindestens "temp_mean" oder "precip_mm" oder "sunshine_h"
+    - Fehlerhafte Einträge werden geloggt + übersprungen, nicht gefatalt
+
+    Diese Datei ist die offizielle Erweiterungsstelle für Stationen über die
+    5 eingebetteten hinaus. Quelle: MeteoSwiss Klimanormwerte 1991–2020,
+    siehe https://opendata.swiss/de/dataset?q=meteoschweiz+klimanormwerte
+    """
+    path = os.environ.get("MCP_CLIMATE_NORMALS_PATH", "").strip()
+    if not path:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        logger.warning("climate_normals_file_missing", path=path)
+        return {}
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "climate_normals_file_invalid", path=path, error=str(exc)[:80]
+        )
+        return {}
+
+    if not isinstance(raw, dict):
+        logger.warning("climate_normals_file_invalid", reason="root must be object")
+        return {}
+
+    cleaned: dict[str, dict[str, list[float]]] = {}
+    for station, values in raw.items():
+        if not isinstance(values, dict):
+            continue
+        entry: dict[str, list[float]] = {}
+        for key in ("temp_mean", "precip_mm", "sunshine_h"):
+            v = values.get(key)
+            if isinstance(v, list) and len(v) == 12 and all(
+                isinstance(x, int | float) for x in v
+            ):
+                entry[key] = [float(x) for x in v]
+        if entry:
+            cleaned[station.upper()] = entry
+        else:
+            logger.warning(
+                "climate_normals_station_skipped",
+                station=station,
+                reason="no_valid_monthly_arrays",
+            )
+    if cleaned:
+        logger.info("climate_normals_loaded", path=path, stations=list(cleaned))
+    return cleaned
+
+
+# Eingebettet + ENV-Erweiterung mergen; Datei-Werte gewinnen bei Konflikten,
+# damit der User korrigierte/aktualisierte Werte ohne Code-Patch ausrollen kann.
+_CLIMATE_NORMALS_EXTRA = _load_extra_climate_normals()
+CLIMATE_NORMALS = {**CLIMATE_NORMALS, **_CLIMATE_NORMALS_EXTRA}
 
 
 # ---------------------------------------------------------------------------
@@ -1559,14 +1818,60 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
         str: Links zu aktuellen MeteoSwiss-Warnungen und Warnkarte.
     """
     logger.info("tool_invoked", tool="meteo_warnings", canton=params.canton or "all")
-    # Versuche CAP-Feed zu lesen (MeteoSwiss Common Alerting Protocol)
+
+    canton_filter = params.canton.upper() if params.canton else ""
+
+    # Phase 2: optionale strukturierte Warnings-API. ENV-konfigurierbar, damit
+    # der Code sofort umgestellt ist, sobald MeteoSwiss eine echte REST-API
+    # liefert (OGD Phase 2, geplant Q2 2026+). Der Host muss in der Egress-
+    # Allow-List stehen — siehe ALLOWED_HOSTS.
+    warnings_api_url = os.environ.get("MCP_WARNINGS_API_URL", "").strip()
+    structured_warnings: list[dict[str, Any]] | None = None
+
+    if warnings_api_url:
+        try:
+            async with _http_client(ctx) as client:
+
+                async def _do_fetch_warnings():
+                    resp = await client.get(warnings_api_url)
+                    resp.raise_for_status()
+                    return resp.json()
+
+                api_data = await _cached(
+                    "warnings_api",
+                    (warnings_api_url, canton_filter),
+                    _do_fetch_warnings,
+                )
+            structured_warnings = _normalize_warnings_response(api_data, canton_filter)
+            logger.info(
+                "warnings_api_ok",
+                count=len(structured_warnings),
+                canton=canton_filter or "all",
+            )
+        except Exception as exc:
+            logger.warning(
+                "upstream_failed",
+                tool="meteo_warnings",
+                endpoint="warnings_api",
+                error_type=exc.__class__.__name__,
+            )
+            if ctx is not None:
+                await ctx.warning(
+                    f"Warnings-API-Fetch fehlgeschlagen: {_sanitize_error(exc)}"
+                )
+
+    # Linkstack-Fallback: opendata.swiss-Katalog (immer als ergänzende Info)
     cap_url = "https://opendata.swiss/api/3/action/package_search?q=meteoschweiz+warnungen&rows=5"
 
     try:
         async with _http_client(ctx) as client:
-            resp = await client.get(cap_url)
-            resp.raise_for_status()
-            data = resp.json()
+
+            async def _do_fetch_opendata():
+                resp = await client.get(cap_url)
+                resp.raise_for_status()
+                return resp.json()
+
+            data = await _cached("opendata_swiss", (cap_url,), _do_fetch_opendata)
         datasets = data.get("result", {}).get("results", [])
     except Exception as exc:
         logger.warning(
@@ -1579,11 +1884,33 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
             await ctx.warning(f"opendata.swiss-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
         datasets = []
 
-    canton_filter = params.canton.upper() if params.canton else ""
-
     lines = [
         "## ⚠️ MeteoSwiss Wetterwarnungen\n",
         f"*{('Kanton ' + canton_filter) if canton_filter else 'Ganze Schweiz'} | Quelle: MeteoSwiss*\n",
+    ]
+
+    # Wenn die strukturierte API aktiv ist + Daten geliefert hat: zuerst rendern.
+    if structured_warnings:
+        lines += [
+            f"### Aktive Warnungen ({len(structured_warnings)})",
+            "| Stufe | Typ | Region | Gültig bis | Hinweis |",
+            "|-------|-----|--------|------------|---------|",
+        ]
+        for w in structured_warnings:
+            level = w.get("level") or "–"
+            wtype = w.get("type") or "–"
+            regions = ", ".join(w.get("regions") or []) or "–"
+            until = w.get("valid_until") or "–"
+            text = (w.get("text") or "")[:80]
+            lines.append(f"| {level} | {wtype} | {regions} | {until} | {text} |")
+        lines.append("")
+    elif warnings_api_url:
+        lines += [
+            "_Keine aktiven Warnungen (strukturierte API lieferte 0 Einträge)._",
+            "",
+        ]
+
+    lines += [
         "### Direkte Warnungsübersicht",
         "",
         "🔗 **Aktuelle Warnkarte (interaktiv):**",
@@ -1620,17 +1947,34 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
             lines.append(f"- [{name}]({url})")
 
     if params.response_format == ResponseFormat.JSON:
+        payload: dict[str, Any] = {
+            "kanton_filter": canton_filter or "alle",
+            "warnungen_url": "https://www.meteoswiss.admin.ch/warnings.html",
+            "meteoalarm_url": "https://www.meteoalarm.org/en/live/country/?s=CH",
+            "ogd_datensaetze": datasets[:3],
+        }
+        if warnings_api_url:
+            payload["warnings_api_active"] = True
+            payload["warnings_api_url"] = warnings_api_url
+            payload["aktive_warnungen"] = structured_warnings or []
+        else:
+            payload["warnings_api_active"] = False
+            payload["hinweis"] = (
+                "Strukturierte API nicht konfiguriert. Setze MCP_WARNINGS_API_URL, "
+                "wenn MeteoSwiss OGD Phase 2 (geplant Q2 2026) eine REST-API liefert."
+            )
         return json.dumps(
             _ogd_envelope(
-                {
-                    "kanton_filter": canton_filter or "alle",
-                    "warnungen_url": "https://www.meteoswiss.admin.ch/warnings.html",
-                    "meteoalarm_url": "https://www.meteoalarm.org/en/live/country/?s=CH",
-                    "ogd_datensaetze": datasets[:3],
-                    "hinweis": "Direkte Warnings-API geplant ab Q2 2026 (MeteoSwiss OGD Phase 2)",
-                },
-                source="MeteoSwiss Warnings (Linkstack + opendata.swiss-Katalog)",
-                data_source_url="https://www.meteoswiss.admin.ch/warnings.html",
+                payload,
+                source=(
+                    "MeteoSwiss Warnings API"
+                    if warnings_api_url
+                    else "MeteoSwiss Warnings (Linkstack + opendata.swiss-Katalog)"
+                ),
+                data_source_url=(
+                    warnings_api_url
+                    or "https://www.meteoswiss.admin.ch/warnings.html"
+                ),
             ),
             ensure_ascii=False,
             indent=2,

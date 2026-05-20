@@ -115,6 +115,14 @@ Konfiguration via ENV-Variablen (CLI-Flags `--http` / `--port N` funktionieren w
 | `MCP_STATELESS_HTTP` | `0` | `1` aktiviert FastMCP-Stateless-Mode → jeder HTTP-Request öffnet eine neue Session. Voraussetzung für Multi-Replica-Deploys ohne Sticky-Sessions (SCALE-002/003). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _unset_ | Wenn gesetzt + `pip install meteoswiss-mcp[otel]`: OpenTelemetry-Spans pro Tool-Call + automatische httpx-Instrumentierung gehen als OTLP-HTTP an den Collector. |
 | `OTEL_SERVICE_NAME` | `meteoswiss_mcp` | Service-Name in den OTel-Resources |
+| `MCP_CACHE_ENABLED` | `1` | `0` schaltet den TTL-Cache komplett aus (z.B. für End-to-End-Tests) |
+| `MCP_CACHE_TTL_STAC` | `300` | TTL in Sekunden für STAC-SMN-Beobachtungen (default 5 min) |
+| `MCP_CACHE_TTL_OPEN_METEO` | `600` | TTL für ICON-Prognosen (default 10 min) |
+| `MCP_CACHE_TTL_GEOCODING` | `3600` | TTL für Geocoding-Lookups (default 1 h) |
+| `MCP_CACHE_TTL_OPENDATA` | `3600` | TTL für opendata.swiss-Katalog (default 1 h) |
+| `MCP_CACHE_TTL_WARNINGS` | `300` | TTL für strukturierte Warnings-API (default 5 min) |
+| `MCP_CLIMATE_NORMALS_PATH` | _unset_ | Pfad auf JSON-Datei mit zusätzlichen Klimanormwerten — siehe `data/climate-normals.example.json` |
+| `MCP_WARNINGS_API_URL` | _unset_ | URL einer strukturierten MeteoSwiss-Warnings-API. Host muss in der Egress-Allow-List stehen. Schema-tolerant (GeoJSON `features`, `warnings`-Array oder `items`). |
 
 ```bash
 # Lokaler Test (sicher, nur loopback)

@@ -1,0 +1,23 @@
+{
+  "_comment": [
+    "Beispiel für MCP_CLIMATE_NORMALS_PATH (Phase 2).",
+    "Setze die Werte aus MeteoSwiss Klimanormwerte 1991-2020,",
+    "siehe https://opendata.swiss/de/dataset?q=meteoschweiz+klimanormwerte",
+    "",
+    "Format pro Station: 12 Monatswerte (Januar..Dezember).",
+    "Beliebige Auswahl der drei Arrays — fehlende werden im Output als — angezeigt.",
+    "",
+    "Die hier gezeigten Werte sind PLATZHALTER und müssen vor produktivem",
+    "Einsatz durch verifizierte MeteoSwiss-Daten ersetzt werden."
+  ],
+  "DAV": {
+    "temp_mean":  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "precip_mm":  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "sunshine_h": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  },
+  "SAE": {
+    "temp_mean":  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "precip_mm":  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "sunshine_h": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  }
+}
