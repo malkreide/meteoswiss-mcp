@@ -7,42 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-20
+
+Komplette Umsetzung des [mcp-audit-skill](https://github.com/malkreide/mcp-audit-skill)-Reviews:
+**0 critical / 0 high / 0 medium** Findings übrig (nur SEC-015 bewusst out-of-scope als Gateway-Pattern). Production-ready für stdio, single-instance HTTP und Multi-Replica HTTP.
+
+### Breaking Changes
+
+- **JSON-Output-Format**: Alle Tools mit `response_format="json"` liefern jetzt einen Envelope `{ "payload": ..., "provenance": { source, license, attribution, retrieved_at, data_source_url } }` statt eines flachen Dicts. Markdown-Outputs unverändert.
+- **Entry-Point**: `pyproject.toml` `[project.scripts]` zeigt jetzt auf `meteoswiss_mcp.server:main` statt `mcp.run` — der neue Wrapper liest `MCP_TRANSPORT` / `MCP_HOST` / `MCP_PORT` / `MCP_ALLOW_ANY_HOST` aus ENV.
+
 ### Added
 
-- **OBS-006** Optionale OpenTelemetry-Tracing: pro Tool-Call ein Span (`tool.<name>` mit `mcp.tool.name` / `mcp.tool.result.is_error`), automatische httpx-Instrumentierung. Aktiv via `OTEL_EXPORTER_OTLP_ENDPOINT` + `pip install meteoswiss-mcp[otel]`. Ohne ENV: No-Op-Stub, kein Performance-Overhead.
-- **SCALE-002 / SCALE-003** Optionaler FastMCP-Stateless-Mode via `MCP_STATELESS_HTTP=1` — erlaubt Multi-Replica-Deploys ohne Sticky-Session-Routing.
-- **ARCH-003** Fuzzy-Fallback im Geokoding: bei leerer DE-Suche zweiter Versuch ohne language-Restriktion + count=5. `_geocode` gibt `match_type` ("exact" / "fuzzy") als viertes Tuple-Element zurück.
-- **ARCH-002** Tool-Beschreibungen strukturiert mit `<use_case>` / `<important_notes>` / `<example>` XML-Tags — bessere LLM-Lesbarkeit (folgt Anthropic-Prompt-Engineering-Konvention). Static-Test im CI guard's the Konvention.
-
-### Changed
-
-- Stateless-Mode + neue Docstrings führen zu geänderten Tool-Hashes — `tool-hashes.json` aktualisiert.
-
-### Added (PR-6)
-
-- **CH-004 / SDK-002** OGD-Provenance-Envelope für alle JSON-Tool-Outputs: `payload` + `provenance` (`source`, `license=CC BY 4.0`, `attribution=MeteoSchweiz`, `retrieved_at`, `data_source_url`). Markdown-Outputs unverändert.
-- **ARCH-012** Dependabot-Konfiguration für `pip`, `github-actions` und `docker`. README enthält jetzt eine «MCP Protocol Version»-Sektion mit Update-Policy.
-- **ARCH-009** README-Annotations-Tabelle mit `readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint` pro Tool.
-- **OPS-003** `docs/roadmap.md` mit expliziter Phasen-Statustabelle (Phase 1 aktiv, Phase 2 geplant, Phase 3 explizit out-of-scope) und Audit-Verfolgung.
-- **SEC-022** `scripts/tool_hashes.py` + `tool-hashes.json` Snapshot. CI-Guard `git diff --exit-code tool-hashes.json` blockt PRs, die Tool-Definitionen ändern ohne den Hash zu aktualisieren.
-- **SDK-004** CORS-Middleware via `MCP_ALLOWED_ORIGINS`-ENV (komma-separiert). `Mcp-Session-Id` wird automatisch in `Access-Control-Expose-Headers` exponiert — browser-clients wie claude.ai Web können jetzt Sessions aufbauen.
-- **SEC-009 / SEC-013** Optionaler API-Key-Auth-Layer via `MCP_API_KEY`. Akzeptiert `X-API-Key`- oder `Authorization: Bearer`-Header, constant-time-Vergleich via `secrets.compare_digest`. `/health` ist bewusst aus der Auth-Pflicht ausgenommen, damit Container-Probes nicht 401 zurückbekommen. `auth_rejected`-Events werden geloggt.
-- **SEC-007 / SCALE-004 / SCALE-006** Multi-Stage-`Dockerfile` (non-root user `mcp:10001`, `HEALTHCHECK`) + `render.yaml`-Blueprint (plan starter, healthCheckPath, explizit `numInstances: 1`). `.dockerignore` schliesst Audits/Assets/Tests aus.
-- **SCALE-004** Health-Endpoint `GET /health` via FastMCP `custom_route` — trivialer 200-OK ohne Upstream-Pings. Test deckt Statuscode + Body ab.
-- **OBS-003** Structured Logging via `structlog`: JSON-Events auf `stderr` (stdio-safe). Events: `tool_invoked`, `upstream_failed`, `egress_blocked`. Log-Level via `MCP_LOG_LEVEL`-ENV (default `INFO`).
-- **OBS-004** CI-Guard `ruff` + `grep -rnE '^\s*print\s*\(' src/` blockt regressionen mit `print()`-Calls in src/.
-- 3 neue respx/monkeypatch-basierte Tests verifizieren die Log-Events.
+- **OpenTelemetry-Tracing** (opt-in via `OTEL_EXPORTER_OTLP_ENDPOINT` + `pip install meteoswiss-mcp[otel]`): pro Tool-Call ein Span mit `mcp.tool.name` + `mcp.tool.result.is_error`, automatische httpx-Instrumentierung. Ohne ENV: No-Op-Stub.
+- **Stateless-HTTP-Mode** via `MCP_STATELESS_HTTP=1` — erlaubt Multi-Replica-Deploys ohne Sticky-Session-Routing.
+- **CORS-Middleware** via `MCP_ALLOWED_ORIGINS` (komma-separiert). `Mcp-Session-Id` wird automatisch in `Access-Control-Expose-Headers` exponiert — browser-clients wie claude.ai Web können Sessions aufbauen.
+- **Optionaler API-Key-Auth-Layer** via `MCP_API_KEY`. Akzeptiert `X-API-Key`- oder `Authorization: Bearer`-Header, constant-time-Vergleich. `/health` bleibt für Container-Probes offen.
+- **OGD-Provenance-Envelope** für JSON-Outputs (`source` / `license=CC BY 4.0` / `attribution=MeteoSchweiz` / `retrieved_at` / `data_source_url`).
+- **Multi-Stage-`Dockerfile`** (non-root user `mcp:10001`, `HEALTHCHECK`) + `render.yaml`-Blueprint (plan starter, healthCheckPath, explizit `numInstances: 1`).
+- **Health-Endpoint** `GET /health` via FastMCP `custom_route` — trivialer 200-OK ohne Upstream-Pings.
+- **Structured Logging** via `structlog`: JSON-Events auf stderr. Events: `tool_invoked`, `upstream_failed`, `egress_blocked`, `auth_rejected`, `cors_configured`, `otel_initialized`. Level via `MCP_LOG_LEVEL`.
+- **Fuzzy-Geocoding-Fallback**: bei leerer DE-Suche zweiter Versuch ohne language-Restriktion. `_geocode` gibt `match_type` ("exact" / "fuzzy") zurück.
+- **Tool-Beschreibungen mit `<use_case>` / `<important_notes>` / `<example>`-XML-Tags** (Anthropic-Prompt-Engineering-Konvention).
+- **Tool-Hash-Pinning**: `scripts/tool_hashes.py` + `tool-hashes.json`. CI-Guard blockt PRs, die Tool-Definitionen ohne Hash-Update ändern.
+- **README**: Annotations-Übersicht, MCP-Protocol-Version-Sektion, ENV-Tabelle.
+- **`docs/roadmap.md`** mit Phasen-Statustabelle und Audit-Verfolgung.
+- **Dependabot** für pip / github-actions / docker.
 
 ### Security
 
-- **SEC-004 / SEC-021** Egress-Allow-List: alle ausgehenden HTTP-Requests werden gegen eine frozenset-Allow-List validiert; Redirect-Follow-Targets ebenfalls. IP-Literale (insbesondere 169.254.169.254 + RFC1918) werden mit `EgressBlocked` abgelehnt.
-- **SEC-016** `MCP_HOST` defaultet jetzt auf `127.0.0.1`; Binding an `0.0.0.0` benötigt explizites `MCP_ALLOW_ANY_HOST=1` (vermeidet NeighborJack bei lokalen `--http`-Sessions).
-- **SEC-006** Transport-Selektion via `MCP_TRANSPORT`-ENV-Variable (CLI-Flags `--http`/`--port` bleiben als Override erhalten).
+- **SSRF-Prevention** (SEC-004 / SEC-021): Egress-Allow-List `data.geo.admin.ch`, `api.open-meteo.com`, `geocoding-api.open-meteo.com`, `opendata.swiss`. Validiert alle Requests inkl. Redirect-Follow-Targets via httpx `event_hooks`. IP-Literale (insbesondere `169.254.169.254` und RFC1918) werden mit `EgressBlocked` abgelehnt.
+- **0.0.0.0-Binding-Hardening** (SEC-016): `MCP_HOST` defaultet auf `127.0.0.1`; Binding an `0.0.0.0` benötigt explizites `MCP_ALLOW_ANY_HOST=1` (Container/Cloud-Opt-In).
+- **Container-Sandboxing** (SEC-007): non-root user `mcp:10001` im Multi-Stage-Image.
+- **CI-Guard** gegen `print()`-Regressionen in `src/` (OBS-004 — stdout-Reinheit für stdio-Transport).
 
 ### Changed
 
-- Entry-Point ist jetzt `meteoswiss_mcp.server:main` (statt `mcp.run`), um Transport-Settings aus ENV/CLI zu lesen.
-- `httpx.AsyncClient` ist nun mit `event_hooks={"request": [...]}` für die Allow-List instrumentiert.
+- Entry-Point: `meteoswiss_mcp.server:main` statt `mcp.run`.
+- `FastMCP(..., lifespan=app_lifespan)`: ein wiederverwendeter `httpx.AsyncClient` ersetzt 5 Stellen mit Per-Call-Clients (Connection-Pooling).
+- Tool-Funktionen akzeptieren jetzt optionalen `ctx: Context | None`-Parameter; FastMCP injiziert ihn zur Laufzeit, Tests können ohne `ctx` aufrufen.
+- HTTP-Errors werden via `_sanitize_error()` von URL-Leaks bereinigt, bevor sie in User-Output gelangen.
+- `httpx.AsyncClient` mit `event_hooks={"request": [_validate_request_hook]}` instrumentiert.
+
+### Fixed
+
+- `tool-hashes.json`-Guard läuft jetzt nur auf Python 3.13 (Produktions-Version), um Pydantic-Schema-Drift zwischen Versionen zu kompensieren.
 
 ## [0.1.0] - 2026-03-31
 
