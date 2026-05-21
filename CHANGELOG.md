@@ -7,26 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added (Bonus — Climate-Normals Runtime-Fallback)
+## [0.3.0] - 2026-05-21
 
-- **`MCP_CLIMATE_NORMALS_URL_TEMPLATE`**-ENV aktiviert einen Runtime-HTTP-Lookup. Wenn für eine Station weder eingebettete noch `MCP_CLIMATE_NORMALS_PATH`-Werte existieren, fetcht das Tool die Daten von einer konfigurierbaren URL (z.B. STAC-Asset) und parst sie als MeteoSwiss-NBCN-TSV (cp1252-encoded). Token-Substitution: `{station}` / `{STATION}` / `{param}` (`tre200m0`/`rre150m0`/`sre000m0`). Pro Tool-Call max. 3 GETs, 24-h-Cache. Bei Fehlschlag silent fallback zum bisherigen Linkstack-Hinweis.
-- `_parse_climate_tsv_for_station()`-Helper für die Runtime-TSV-Antworten.
-- `meteo_climate_normals` akzeptiert jetzt einen optionalen `ctx: Context | None`-Parameter (analog zu den HTTP-Tools), damit `ctx.info()` während des Runtime-Fetches sichtbar ist.
+Phase-2-Release: TTL-Caching aller Upstream-Calls, erweiterbare Klimanormwerte (19 Stationen statt 5), strukturierter Warnings-API-Hook. Kein Breaking Change gegenüber 0.2.0 — alle neuen Features sind opt-in via ENV.
 
-### Added (PR-13 — Climate-Normals-Ingest)
+### Added
 
-- `scripts/ingest_climate_normals.py`: parst MeteoSwiss-Wide-Format-CSV (`Station;Parameter;Jan;…;Dez;Jahr`) und schreibt das `data/climate-normals.json`-Format. Filtert relevante Parameter (`tre200m0`/`rre150m0`/`sre000m0`), ignoriert andere. Plausibilitäts-Validierung mit Cross-Station-Checks (Lugano > Davos etc.). `--merge`-Modus für inkrementelle Ergänzungen.
-- `data/README.md`: Stations-Übersicht (5 eingebettet, 15 noch ausstehend) + Schritt-für-Schritt-Workflow für den Datenimport + Quellen-URLs.
+#### Performance
 
-### Added (Phase 2 — Caching + Data Extension)
+- **TTL-Cache** für alle Upstream-Calls (STAC, Open-Meteo, Geocoding, opendata.swiss, Warnings-API). Asyncio-safe via Per-Key-Locks (Thundering-Herd-Schutz). Per-Endpoint-TTLs via `MCP_CACHE_TTL_STAC` / `MCP_CACHE_TTL_OPEN_METEO` / `MCP_CACHE_TTL_GEOCODING` / `MCP_CACHE_TTL_OPENDATA` / `MCP_CACHE_TTL_WARNINGS` / `MCP_CACHE_TTL_STAC_CLIMATE` (defaults: 5 min für Live-Daten, 1 h für Stammdaten, 24 h für Klima-Runtime-Lookup). Deaktivierbar via `MCP_CACHE_ENABLED=0`.
 
-- **TTL-Cache** für alle Upstream-Calls (STAC / Open-Meteo / Geocoding / opendata.swiss / Warnings-API). asyncio-safe via Per-Key-Locks (verhindert Thundering-Herd). Per-Endpoint-TTLs via ENV (`MCP_CACHE_TTL_*`), default 5 min für Live-Daten, 1 h für Stammdaten. Deaktivierbar via `MCP_CACHE_ENABLED=0`.
-- **`MCP_CLIMATE_NORMALS_PATH`** lädt zusätzliche Klimanormwerte aus einer JSON-Datei zur Laufzeit. Die eingebetteten 5 Stationen werden mit dem File gemerged; Datei-Werte gewinnen bei Konflikten. Validiert pro Eintrag: 12-elementige Monatslisten, sonst geloggt + geskippt. Beispiel: `data/climate-normals.example.json`.
-- **`MCP_WARNINGS_API_URL`** aktiviert die strukturierte MeteoSwiss-Warnings-API in `meteo_warnings`. Tool fetcht die URL, normalisiert das Schema (GeoJSON / `warnings`-Array / `items`), filtert nach Kanton und rendert eine Tabelle mit Stufe / Typ / Region / Gültigkeit. Linkstack bleibt als Begleit-Info. Ohne ENV: bisheriges Verhalten (Linkstack only).
+#### Daten
+
+- **Klimanormwerte 1991-2020 für 19 SMN-Stationen** in `data/climate-normals.json`, ingested aus der offiziellen MeteoSwiss-NBCN-Publikation: BAS, BER, CHU, DAV, GVE, INT, JUN, KLO, LUG, LUZ, PIL, PUY, REH, SAE, SIO, SMA, STG, TAE, WAE (REC nicht in NBCN). Aktiviert via `MCP_CLIMATE_NORMALS_PATH=data/climate-normals.json`.
+- **`MCP_CLIMATE_NORMALS_PATH`** lädt zusätzliche Klimanormwerte aus einer JSON-Datei zur Laufzeit. Datei-Werte gewinnen bei Konflikten gegenüber den eingebetteten 5 Stationen. Validation pro Eintrag (12-elementige Monatslisten); fehlerhafte Einträge werden geloggt und übersprungen.
+- **`MCP_CLIMATE_NORMALS_URL_TEMPLATE`** aktiviert einen Runtime-HTTP-Lookup für Klimanormwerte (für Stationen ohne eingebettete oder JSON-Werte). Token-Substitution: `{station}` / `{STATION}` / `{param}` (`tre200m0` / `rre150m0` / `sre000m0`). Pro Tool-Call max. 3 GETs, 24-h-Cache. Bei Fehlschlag silent fallback zum bisherigen Linkstack-Hinweis.
+- **`scripts/ingest_climate_normals.py`**: parst MeteoSwiss-NBCN-TSV-Dumps (Tab-separated, cp1252-encoded, Pattern `climate-reports-normtables_<param>_<period>_<lang>.txt`). Verzeichnis-Modus scannt automatisch alle relevanten Files; Plausibilitäts-Validierung mit Cross-Station-Checks. `--merge` für inkrementelle Ergänzungen. Siehe [`data/README.md`](data/README.md).
+
+#### Strukturierte Warnings
+
+- **`MCP_WARNINGS_API_URL`** aktiviert eine strukturierte MeteoSwiss-Warnings-API in `meteo_warnings`. Schema-tolerant gegen GeoJSON-Features, `warnings`-Array oder `items`. Canton-Filter wirkt auf das normalisierte Schema. Linkstack bleibt als Begleit-Info. Ohne ENV: bisheriges Verhalten (Linkstack only). Vorbereitet für die geplante MeteoSwiss-OGD-Phase-2-API.
 
 ### Changed
 
-- `_geocode`, `_fetch_open_meteo_forecast`, `_fetch_stac_now_csv` und der opendata.swiss-Call in `meteo_warnings` gehen jetzt über `_cached(...)`. Cache-Schlüssel: gerundete Koordinaten / Stationscode / lowercase-Locationsname.
+- `_geocode`, `_fetch_open_meteo_forecast`, `_fetch_stac_now_csv` und der opendata.swiss-Call in `meteo_warnings` gehen jetzt durch den TTL-Cache. Cache-Schlüssel: gerundete Koordinaten / Stationscode / lowercase-Locationsname.
+- `meteo_climate_normals` akzeptiert jetzt einen optionalen `ctx: Context | None`-Parameter (wie die anderen HTTP-Tools), damit `ctx.info()`-Events während des Runtime-Fetches sichtbar sind.
+
+### Quellen
+
+- MeteoSwiss-NBCN-Klimanormwerte 1991-2020 (Lizenz CC BY 4.0 — Quelle: MeteoSchweiz)
 
 ## [0.2.0] - 2026-05-20
 
