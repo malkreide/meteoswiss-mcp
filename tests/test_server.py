@@ -1154,6 +1154,116 @@ async def test_meteo_warnings_uses_api_when_configured(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Climate-Normals Runtime-Fallback (Bonus: MCP_CLIMATE_NORMALS_URL_TEMPLATE)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_climate_runtime_fallback_loads_from_url(monkeypatch):
+    """Bei fehlenden eingebetteten Normwerten zieht das Tool aus dem Template-URL."""
+    import respx
+
+    from meteoswiss_mcp.server import (
+        ClimateNormalsInput,
+        _cache_clear,
+        meteo_climate_normals,
+    )
+
+    _cache_clear()
+
+    # data.geo.admin.ch ist in der Egress-Allow-List
+    monkeypatch.setenv(
+        "MCP_CLIMATE_NORMALS_URL_TEMPLATE",
+        "https://data.geo.admin.ch/test/{station}/{param}.txt",
+    )
+
+    # Synthetisches MeteoSwiss-NBCN-TSV mit nur Reckenholz drin
+    tsv = (
+        "MeteoSchweiz\n"
+        "\n"
+        "Monatswerte 1991-2020\n"
+        "\n"
+        "Station\tAlt\tCoords\tPeriod\tJan\tFeb\tMar\tApr\tMai\tJun\tJul\tAug\tSep\tOkt\tNov\tDez\tJahr\n"
+        "Zürich / Reckenholz\t443\tx\ty\t-0.4\t0.7\t4.6\t8.7\t13.5\t16.6\t18.8\t18.4\t14.2\t9.6\t4.2\t0.5\t9.1\n"
+    )
+
+    with respx.mock(assert_all_called=False) as r:
+        r.get(url__regex=r"https://data.geo.admin.ch/test/rec/.*\.txt").respond(
+            200, content=tsv.encode("cp1252"), headers={"content-type": "text/plain"}
+        )
+        result = await meteo_climate_normals(ClimateNormalsInput(station="REC"))
+
+    # Bei Erfolg muss der "keine eingebetteten Normwerte"-Fallback NICHT erscheinen
+    assert "keine eingebetteten Normwerte" not in result
+    assert "Reckenholz" in result or "REC" in result
+    # Einer der Werte taucht im Markdown auf
+    assert "-0.4" in result or "13.5" in result
+
+    monkeypatch.delenv("MCP_CLIMATE_NORMALS_URL_TEMPLATE", raising=False)
+
+
+@pytest.mark.asyncio
+async def test_climate_runtime_fallback_disabled_by_default(monkeypatch):
+    """Ohne MCP_CLIMATE_NORMALS_URL_TEMPLATE bleibt der bisherige Fallback aktiv."""
+    monkeypatch.delenv("MCP_CLIMATE_NORMALS_URL_TEMPLATE", raising=False)
+
+    from meteoswiss_mcp.server import (
+        ClimateNormalsInput,
+        _cache_clear,
+        meteo_climate_normals,
+    )
+
+    _cache_clear()
+    result = await meteo_climate_normals(ClimateNormalsInput(station="REC"))
+    assert "keine eingebetteten Normwerte" in result
+    assert "MCP_CLIMATE_NORMALS_URL_TEMPLATE" in result  # Hinweis im User-Output
+
+
+@pytest.mark.asyncio
+async def test_climate_runtime_fallback_404_falls_back_gracefully(monkeypatch):
+    """Wenn der URL-Template-Fetch 404 liefert, fällt das Tool auf den Linkstack zurück."""
+    import respx
+
+    from meteoswiss_mcp.server import (
+        ClimateNormalsInput,
+        _cache_clear,
+        meteo_climate_normals,
+    )
+
+    _cache_clear()
+    monkeypatch.setenv(
+        "MCP_CLIMATE_NORMALS_URL_TEMPLATE",
+        "https://data.geo.admin.ch/notfound/{station}/{param}.txt",
+    )
+
+    with respx.mock(assert_all_called=False) as r:
+        r.get(url__regex=r"https://data.geo.admin.ch/notfound/.*").respond(404)
+        result = await meteo_climate_normals(ClimateNormalsInput(station="REC"))
+
+    assert "keine eingebetteten Normwerte" in result
+    monkeypatch.delenv("MCP_CLIMATE_NORMALS_URL_TEMPLATE", raising=False)
+
+
+def test_parse_climate_tsv_finds_correct_station():
+    """TSV-Parser findet die gewünschte Station und gibt 12 Monatswerte zurück."""
+    from meteoswiss_mcp.server import _parse_climate_tsv_for_station
+
+    tsv = (
+        "Header\n"
+        "\n"
+        "Station\tAlt\tCoords\tPeriod\tJan\tFeb\tMar\tApr\tMai\tJun\tJul\tAug\tSep\tOkt\tNov\tDez\tJahr\n"
+        "Davos\t1594\tx\ty\t-5.5\t-4.8\t-1.8\t1.6\t6.4\t9.6\t11.7\t11.4\t7.7\t4.0\t-1.0\t-4.5\t2.9\n"
+        "Lugano\t273\tx\ty\t3.8\t5.0\t9.4\t13.5\t18.1\t21.4\t24.0\t23.3\t18.8\t13.4\t7.8\t4.3\t13.6\n"
+    )
+    values = _parse_climate_tsv_for_station(tsv, "Davos")
+    assert values is not None
+    assert len(values) == 12
+    assert values[0] == -5.5
+    # Andere Station gibt None
+    assert _parse_climate_tsv_for_station(tsv, "Nonexistent") is None
+
+
+# ---------------------------------------------------------------------------
 # Climate-Normals Ingest-Skript (PR-13: scripts/ingest_climate_normals.py)
 # ---------------------------------------------------------------------------
 

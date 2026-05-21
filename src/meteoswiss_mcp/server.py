@@ -1123,6 +1123,157 @@ _CLIMATE_NORMALS_EXTRA = _load_extra_climate_normals()
 CLIMATE_NORMALS = {**CLIMATE_NORMALS, **_CLIMATE_NORMALS_EXTRA}
 
 
+# MeteoSwiss-NBCN-Stationscode-Mapping (siehe scripts/ingest_climate_normals.py).
+# Wird auch zur Laufzeit für den Runtime-Fallback gebraucht.
+_STATION_CODE_TO_LONG_NAME: dict[str, str] = {
+    "KLO": "Zürich / Kloten",
+    "SMA": "Zürich / Fluntern",
+    "REH": "Zürich / Affoltern",
+    "REC": "Zürich / Reckenholz",
+    "WAE": "Wädenswil",
+    "TAE": "Aadorf / Tänikon",
+    "BER": "Bern / Zollikofen",
+    "INT": "Interlaken",
+    "BAS": "Basel / Binningen",
+    "LUZ": "Luzern",
+    "STG": "St. Gallen",
+    "DAV": "Davos",
+    "CHU": "Chur",
+    "SIO": "Sion",
+    "LUG": "Lugano",
+    "GVE": "Genève / Cointrin",
+    "PUY": "Payerne",
+    "JUN": "Jungfraujoch",
+    "SAE": "Säntis",
+    "PIL": "Pilatus",
+}
+
+# Welche Parameter holt der Runtime-Fallback? In dieser Reihenfolge versucht das
+# Tool die Templates aufzurufen. Filename-Tokens, die im URL-Template ersetzt
+# werden: {station} (lowercase), {STATION} (uppercase), {param} (MeteoSwiss-Code).
+_CLIMATE_PARAM_ORDER: tuple[tuple[str, str], ...] = (
+    ("tre200m0", "temp_mean"),
+    ("rre150m0", "precip_mm"),
+    ("sre000m0", "sunshine_h"),
+)
+
+
+def _parse_climate_tsv_for_station(text: str, station_long_name: str) -> list[float] | None:
+    """Sucht in einem MeteoSwiss-NBCN-TSV-Dump die Zeile für `station_long_name`
+    und gibt die 12 Monatswerte zurück. None wenn nicht gefunden / unparseable.
+    """
+    import csv as _csv
+    import io as _io
+
+    # Header-Block überspringen (5-9 Zeilen) bis zur Spaltenüberschrift
+    in_data = False
+    reader = _csv.reader(_io.StringIO(text), delimiter="\t")
+    for row in reader:
+        if not row or not row[0].strip():
+            continue
+        if not in_data:
+            if row[0].strip().lower() in {"station", "stazione"} and len(row) >= 14:
+                in_data = True
+            continue
+        if row[0].strip() != station_long_name:
+            continue
+        # 4 Meta-Spalten + 12 Monate
+        if len(row) < 16:
+            return None
+        try:
+            return [float(c.replace(",", ".")) for c in row[4:16]]
+        except ValueError:
+            return None
+    return None
+
+
+async def _try_runtime_fetch_climate_normals(
+    client: httpx.AsyncClient, station_code: str
+) -> dict[str, list[float]] | None:
+    """Versucht, Klimanormwerte für eine Station zur Laufzeit von einer
+    konfigurierbaren URL nachzuladen.
+
+    Aktiviert via ENV `MCP_CLIMATE_NORMALS_URL_TEMPLATE`. Beispiel-Templates:
+
+        MCP_CLIMATE_NORMALS_URL_TEMPLATE=https://data.geo.admin.ch/api/stac/v1/\
+collections/ch.meteoschweiz.ogd-nbcn/items/{station}/assets/{param}.txt
+
+    Token-Substitution:
+        {station} → Stationscode lowercase (z.B. "rec")
+        {STATION} → Stationscode uppercase (z.B. "REC")
+        {param}   → MeteoSwiss-Parametercode (tre200m0/rre150m0/sre000m0)
+
+    Pro Tool-Call werden bis zu 3 GETs gemacht (einer pro Parameter). Antwort wird
+    als MeteoSwiss-NBCN-TSV interpretiert (gleiches Format wie der Dump-Ingest).
+    Das Ergebnis ist gecacht (TTL: MCP_CACHE_TTL_STAC_CLIMATE, default 24 h).
+
+    Returns:
+        {"temp_mean": [...], "precip_mm": [...], "sunshine_h": [...]} sofern
+        mindestens 1 Parameter erfolgreich geladen wurde, sonst None.
+    """
+    template = os.environ.get("MCP_CLIMATE_NORMALS_URL_TEMPLATE", "").strip()
+    if not template:
+        return None
+
+    station_long = _STATION_CODE_TO_LONG_NAME.get(station_code)
+    if not station_long:
+        return None  # ohne Mapping kein TSV-Lookup möglich
+
+    result: dict[str, list[float]] = {}
+
+    for ms_param, our_field in _CLIMATE_PARAM_ORDER:
+        url = (
+            template
+            .replace("{station}", station_code.lower())
+            .replace("{STATION}", station_code.upper())
+            .replace("{param}", ms_param)
+        )
+
+        async def _do_fetch(url_=url):
+            resp = await client.get(url_)
+            resp.raise_for_status()
+            # MeteoSwiss-Files sind typischerweise cp1252-encoded
+            try:
+                resp.encoding = "cp1252"
+                _ = resp.text
+            except Exception:
+                pass
+            return resp.text
+
+        try:
+            text = await _cached(
+                "stac_climate", (url, station_code, ms_param), _do_fetch
+            )
+        except Exception as exc:
+            logger.warning(
+                "climate_runtime_fetch_failed",
+                station=station_code,
+                param=ms_param,
+                error_type=exc.__class__.__name__,
+            )
+            continue
+
+        values = _parse_climate_tsv_for_station(text, station_long)
+        if values is not None and len(values) == 12:
+            result[our_field] = values
+        else:
+            logger.warning(
+                "climate_runtime_parse_failed",
+                station=station_code,
+                param=ms_param,
+                reason="station_not_found_or_invalid_format",
+            )
+
+    if not result:
+        return None
+    logger.info(
+        "climate_runtime_fetched",
+        station=station_code,
+        params=list(result.keys()),
+    )
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
@@ -1676,7 +1827,9 @@ async def meteo_school_check(
     },
 )
 @_traced_tool("meteo_climate_normals")
-async def meteo_climate_normals(params: ClimateNormalsInput) -> str:
+async def meteo_climate_normals(
+    params: ClimateNormalsInput, ctx: Context | None = None
+) -> str:
     """<use_case>
     Monatliche 30-Jahres-Klimanormwerte (Temperatur ∅, Niederschlag,
     Sonnenstunden) für eine MeteoSwiss-Station. Referenz für «typisches
@@ -1716,14 +1869,24 @@ async def meteo_climate_normals(params: ClimateNormalsInput) -> str:
         )
 
     if not normals:
-        available = ", ".join(sorted(CLIMATE_NORMALS.keys()))
-        return (
-            f"Station '{code}' ({station_info['name']}) hat keine eingebetteten Normwerte.\n\n"
-            f"**Verfügbar:** {available}\n\n"
-            f"**Vollständige Normwerte auf opendata.swiss:**\n"
-            f"https://opendata.swiss/de/dataset?q=meteoschweiz+klimanormwerte\n\n"
-            f"*→ `meteo_forecast` für aktuelle Prognose verwenden.*"
-        )
+        # Runtime-Fallback: konfigurierbare URL via MCP_CLIMATE_NORMALS_URL_TEMPLATE
+        # (z.B. STAC). Bleibt None wenn ENV nicht gesetzt oder Fetch fehlschlägt.
+        if ctx is not None:
+            await ctx.info(f"Versuche Runtime-Fetch für Station {code}")
+        async with _http_client(ctx) as client:
+            normals = await _try_runtime_fetch_climate_normals(client, code)
+
+        if not normals:
+            available = ", ".join(sorted(CLIMATE_NORMALS.keys()))
+            return (
+                f"Station '{code}' ({station_info['name']}) hat keine eingebetteten Normwerte.\n\n"
+                f"**Verfügbar:** {available}\n\n"
+                f"**Vollständige Normwerte auf opendata.swiss:**\n"
+                f"https://opendata.swiss/de/dataset?q=meteoschweiz+klimanormwerte\n\n"
+                f"**Tipp:** Setze `MCP_CLIMATE_NORMALS_URL_TEMPLATE` für Laufzeit-Lookup, "
+                f"siehe README.\n\n"
+                f"*→ `meteo_forecast` für aktuelle Prognose verwenden.*"
+            )
 
     if params.response_format == ResponseFormat.JSON:
         return json.dumps(
