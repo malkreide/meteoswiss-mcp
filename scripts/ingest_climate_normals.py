@@ -152,12 +152,20 @@ def parse_metswiss_tsv(text: str, param_code: str) -> dict[str, list[float]]:
 
 
 _FILENAME_RE = re.compile(
-    r"climatereportsnormtables_"
+    # Akzeptiert beide Schreibweisen: "climatereportsnormtables_" und
+    # "climate-reports-normtables_" (offizielle MeteoSwiss-Variante mit Bindestrichen)
+    r"climate-?reports-?normtables_"
     r"(?P<param>[a-z]{3}\d{3}[a-z]\d)"
-    r"_(?P<period>\d{8})"
+    # Periode: "1991-2020" (mit Bindestrich, offiziell) oder "19912020"
+    r"_(?P<period>\d{4}-?\d{4})"
     r"_(?P<lang>[a-z]{2})\.txt$",
     re.IGNORECASE,
 )
+
+
+def _normalize_period(p: str) -> str:
+    """Normalisiert '1991-2020' → '19912020' für Vergleiche."""
+    return p.replace("-", "")
 
 
 def ingest_directory(
@@ -173,7 +181,9 @@ def ingest_directory(
         m = _FILENAME_RE.search(f.name)
         if not m:
             continue
-        if m.group("period") != period:
+        # Periode kann als "1991-2020" oder "19912020" geschrieben sein —
+        # für den Vergleich beide normalisieren.
+        if _normalize_period(m.group("period")) != _normalize_period(period):
             continue
         if m.group("lang") != lang:
             continue

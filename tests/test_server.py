@@ -1189,7 +1189,12 @@ def test_ingest_parses_metswiss_tsv_per_parameter():
 
 
 def test_ingest_filename_regex_filters_correctly():
-    """Filename-Pattern filtert nach Parameter / Periode / Sprache."""
+    """Filename-Pattern filtert nach Parameter / Periode / Sprache.
+
+    Akzeptiert sowohl die kompakte Form (`climatereportsnormtables_…_19912020_…`)
+    als auch die offizielle MeteoSwiss-Form mit Bindestrichen
+    (`climate-reports-normtables_…_1991-2020_…`).
+    """
     import importlib.util
     import pathlib
 
@@ -1199,12 +1204,22 @@ def test_ingest_filename_regex_filters_correctly():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
 
-    # Mit UUID-Präfix (so wie hochgeladene Files) muss Regex weiterhin matchen
+    # Variante 1: kompakt + UUID-Präfix
     m = mod._FILENAME_RE.search("abc123-climatereportsnormtables_tre200m0_19912020_de.txt")
     assert m is not None
     assert m.group("param") == "tre200m0"
     assert m.group("period") == "19912020"
     assert m.group("lang") == "de"
+
+    # Variante 2: offizielle MeteoSwiss-Schreibweise mit Bindestrichen
+    m2 = mod._FILENAME_RE.search("climate-reports-normtables_fkl010m0_1991-2020_de.txt")
+    assert m2 is not None
+    assert m2.group("param") == "fkl010m0"
+    assert m2.group("period") == "1991-2020"
+    assert m2.group("lang") == "de"
+
+    # Period-Normalisierung: beide Schreibweisen sollen gleich vergleichen
+    assert mod._normalize_period("1991-2020") == mod._normalize_period("19912020")
 
 
 def test_ingest_plausibility_catches_swapped_stations():
