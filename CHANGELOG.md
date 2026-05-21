@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Bonus — Climate-Normals Runtime-Fallback)
+
+- **`MCP_CLIMATE_NORMALS_URL_TEMPLATE`**-ENV aktiviert einen Runtime-HTTP-Lookup. Wenn für eine Station weder eingebettete noch `MCP_CLIMATE_NORMALS_PATH`-Werte existieren, fetcht das Tool die Daten von einer konfigurierbaren URL (z.B. STAC-Asset) und parst sie als MeteoSwiss-NBCN-TSV (cp1252-encoded). Token-Substitution: `{station}` / `{STATION}` / `{param}` (`tre200m0`/`rre150m0`/`sre000m0`). Pro Tool-Call max. 3 GETs, 24-h-Cache. Bei Fehlschlag silent fallback zum bisherigen Linkstack-Hinweis.
+- `_parse_climate_tsv_for_station()`-Helper für die Runtime-TSV-Antworten.
+- `meteo_climate_normals` akzeptiert jetzt einen optionalen `ctx: Context | None`-Parameter (analog zu den HTTP-Tools), damit `ctx.info()` während des Runtime-Fetches sichtbar ist.
+
 ### Added (PR-13 — Climate-Normals-Ingest)
 
 - `scripts/ingest_climate_normals.py`: parst MeteoSwiss-Wide-Format-CSV (`Station;Parameter;Jan;…;Dez;Jahr`) und schreibt das `data/climate-normals.json`-Format. Filtert relevante Parameter (`tre200m0`/`rre150m0`/`sre000m0`), ignoriert andere. Plausibilitäts-Validierung mit Cross-Station-Checks (Lugano > Davos etc.). `--merge`-Modus für inkrementelle Ergänzungen.

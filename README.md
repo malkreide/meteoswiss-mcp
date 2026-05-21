@@ -123,6 +123,7 @@ Konfiguration via ENV-Variablen (CLI-Flags `--http` / `--port N` funktionieren w
 | `MCP_CACHE_TTL_WARNINGS` | `300` | TTL für strukturierte Warnings-API (default 5 min) |
 | `MCP_CLIMATE_NORMALS_PATH` | _unset_ | Pfad auf JSON-Datei mit zusätzlichen Klimanormwerten — siehe `data/climate-normals.example.json` |
 | `MCP_WARNINGS_API_URL` | _unset_ | URL einer strukturierten MeteoSwiss-Warnings-API. Host muss in der Egress-Allow-List stehen. Schema-tolerant (GeoJSON `features`, `warnings`-Array oder `items`). |
+| `MCP_CLIMATE_NORMALS_URL_TEMPLATE` | _unset_ | URL-Template für Runtime-Lookup von Klimanormwerten (für Stationen ohne eingebettete oder JSON-Werte). Tokens: `{station}` (lowercase), `{STATION}` (uppercase), `{param}` (MeteoSwiss-Code `tre200m0`/`rre150m0`/`sre000m0`). Beispiel: `https://data.geo.admin.ch/.../{station}/{param}.txt`. Host muss in der Egress-Allow-List stehen. |
 
 ```bash
 # Lokaler Test (sicher, nur loopback)
