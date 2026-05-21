@@ -1158,8 +1158,8 @@ async def test_meteo_warnings_uses_api_when_configured(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_ingest_parses_metswiss_wide_csv():
-    """Standard-MeteoSwiss-Wide-Format wird korrekt geparst."""
+def test_ingest_parses_metswiss_tsv_per_parameter():
+    """MeteoSwiss-TSV (ein Parameter pro Datei) wird korrekt geparst."""
     import importlib.util
     import pathlib
 
@@ -1169,20 +1169,42 @@ def test_ingest_parses_metswiss_wide_csv():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
 
-    csv_text = (
-        "Station;Parameter;Jan;Feb;Mar;Apr;Mai;Jun;Jul;Aug;Sep;Okt;Nov;Dez;Jahr\n"
-        "KLO;tre200m0;-0.6;0.6;4.5;8.6;13.4;16.5;18.7;18.3;14.1;9.5;4.1;0.4;9.0\n"
-        "KLO;rre150m0;61;56;66;74;100;112;99;104;81;69;72;68;962\n"
-        "DAV;tre200m0;-5.5;-4.8;-1.8;1.6;6.4;9.6;11.7;11.4;7.7;4.0;-1.0;-4.5;2.9\n"
-        "DAV;dro000s0;1;1;1;1;1;1;1;1;1;1;1;1;12\n"  # nicht-relevanter Parameter
+    # MeteoSwiss-Format: Header + 4 Meta-Spalten + 12 Monate + Jahr
+    tsv = (
+        "Header line\n"
+        "Another header line\n"
+        "\n"
+        "Erstellungsdatum: ...\n"
+        "\n"
+        "Monthly values Temperature\n"
+        "\n"
+        "Station\tAltitude\tCoords\tPeriod\tJan\tFeb\tMar\tApr\tMai\tJun\tJul\tAug\tSep\tOkt\tNov\tDez\tJahr\n"
+        "Zürich / Kloten\t426\t2682711 / 1259338\t01.1991-12.2020\t-0.6\t0.6\t4.5\t8.6\t13.4\t16.5\t18.7\t18.3\t14.1\t9.5\t4.1\t0.4\t9.0\n"
+        "Davos\t1594\t2783519 / 1187458\t01.1991-12.2020\t-5.5\t-4.8\t-1.8\t1.6\t6.4\t9.6\t11.7\t11.4\t7.7\t4.0\t-1.0\t-4.5\t2.9\n"
     )
-    result = mod.parse_csv(csv_text)
-    assert set(result.keys()) == {"KLO", "DAV"}
-    assert result["KLO"]["temp_mean"][0] == -0.6
-    assert result["KLO"]["precip_mm"][0] == 61.0
-    assert "temp_mean" in result["DAV"]
-    # nicht-relevanter Parameter dro000s0 wurde gefiltert
-    assert "dro000s0" not in result["DAV"]
+    result = mod.parse_metswiss_tsv(tsv, "tre200m0")
+    assert "Zürich / Kloten" in result
+    assert "Davos" in result
+    assert result["Davos"][0] == -5.5
+
+
+def test_ingest_filename_regex_filters_correctly():
+    """Filename-Pattern filtert nach Parameter / Periode / Sprache."""
+    import importlib.util
+    import pathlib
+
+    spec = importlib.util.spec_from_file_location(
+        "ingest", pathlib.Path("scripts/ingest_climate_normals.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # Mit UUID-Präfix (so wie hochgeladene Files) muss Regex weiterhin matchen
+    m = mod._FILENAME_RE.search("abc123-climatereportsnormtables_tre200m0_19912020_de.txt")
+    assert m is not None
+    assert m.group("param") == "tre200m0"
+    assert m.group("period") == "19912020"
+    assert m.group("lang") == "de"
 
 
 def test_ingest_plausibility_catches_swapped_stations():
@@ -1197,26 +1219,15 @@ def test_ingest_plausibility_catches_swapped_stations():
     spec.loader.exec_module(mod)
 
     data = {
-        "DAV": {"temp_mean": [15.0] * 12},  # zu warm für Davos
-        "LUG": {"temp_mean": [0.0] * 12},   # zu kalt für Lugano
+        "DAV": {"temp_mean": [15.0] * 12},
+        "LUG": {"temp_mean": [0.0] * 12},
     }
     warnings = mod.validate_plausibility(data)
     assert any("LUG" in w and "DAV" in w for w in warnings)
 
 
-def test_ingest_extracted_data_loads_into_server(tmp_path, monkeypatch):
-    """Ingestete Datei lässt sich vom Server via MCP_CLIMATE_NORMALS_PATH laden."""
-    import importlib
-
-    # Beispiel-CSV (synthetisch) ingesten
-    csv_text = (
-        "Station;Parameter;Jan;Feb;Mar;Apr;Mai;Jun;Jul;Aug;Sep;Okt;Nov;Dez;Jahr\n"
-        "TST;tre200m0;0;0;0;0;0;0;0;0;0;0;0;0;0\n"
-    )
-    csv_path = tmp_path / "input.csv"
-    csv_path.write_text(csv_text)
-    out_path = tmp_path / "out.json"
-
+def test_ingest_directory_e2e_with_station_mapping(tmp_path, monkeypatch):
+    """End-to-End: TSV-Datei in Verzeichnis → JSON mit SMN-Codes → Server lädt sie."""
     import importlib.util
     import pathlib
 
@@ -1225,15 +1236,38 @@ def test_ingest_extracted_data_loads_into_server(tmp_path, monkeypatch):
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    parsed = mod.parse_csv(csv_text)
-    out_path.write_text(json.dumps(parsed))
 
+    # cp1252-encoded TSV mit Umlauten
+    tsv = (
+        "Header\n"
+        "\n"
+        "Station\tHoehe\tCoords\tPeriod\tJan\tFeb\tMar\tApr\tMai\tJun\tJul\tAug\tSep\tOkt\tNov\tDez\tJahr\n"
+        "Zürich / Kloten\t426\tx\ty\t-0.6\t0.6\t4.5\t8.6\t13.4\t16.5\t18.7\t18.3\t14.1\t9.5\t4.1\t0.4\t9.0\n"
+        "NotMapped\t0\tx\ty\t1\t2\t3\t4\t5\t6\t7\t8\t9\t10\t11\t12\t7\n"
+    )
+    fdir = tmp_path / "files"
+    fdir.mkdir()
+    fname = fdir / "climatereportsnormtables_tre200m0_19912020_de.txt"
+    fname.write_bytes(tsv.encode("cp1252"))
+
+    parsed = mod.ingest_directory(fdir, period="19912020", lang="de")
+    # KLO wurde via Mapping erkannt; NotMapped wurde geskippt
+    assert "KLO" in parsed
+    assert "NotMapped" not in parsed
+    assert parsed["KLO"]["temp_mean"][0] == -0.6
+
+    # Server kann die Datei laden
+    out_path = tmp_path / "out.json"
+    out_path.write_text(json.dumps(parsed))
     monkeypatch.setenv("MCP_CLIMATE_NORMALS_PATH", str(out_path))
+
+    import importlib
+
     from meteoswiss_mcp import server as srv
     importlib.reload(srv)
-
-    assert "TST" in srv.CLIMATE_NORMALS
-    assert srv.CLIMATE_NORMALS["TST"]["temp_mean"] == [0.0] * 12
+    assert "KLO" in srv.CLIMATE_NORMALS
+    # Eingebettete KLO-Werte wurden überschrieben:
+    assert srv.CLIMATE_NORMALS["KLO"]["temp_mean"][0] == -0.6
 
     monkeypatch.delenv("MCP_CLIMATE_NORMALS_PATH", raising=False)
     importlib.reload(srv)
