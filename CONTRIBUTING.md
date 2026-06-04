@@ -1,6 +1,8 @@
 # Contributing to meteoswiss-mcp
 
-Thank you for your interest in contributing! This server is part of the [Swiss Public Data MCP Portfolio](https://github.com/malkreide).
+🇩🇪 [Deutsche Version](CONTRIBUTING.de.md)
+
+Thank you for your interest in contributing! This server is part of the [Swiss Public Data MCP Portfolio](https://github.com/malkreide/swiss-public-data-mcp).
 
 ---
 

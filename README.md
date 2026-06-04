@@ -1,4 +1,4 @@
-# meteoswiss-mcp
+# 🌦️ meteoswiss-mcp
 
 [![CI](https://github.com/malkreide/meteoswiss-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/malkreide/meteoswiss-mcp/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/meteoswiss-mcp)](https://pypi.org/project/meteoswiss-mcp/)
@@ -6,72 +6,74 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![swiss-public-data-mcp](https://img.shields.io/badge/portfolio-swiss--public--data--mcp-blue)](https://github.com/malkreide/swiss-public-data-mcp)
 
-**MCP Server für Schweizer Wetter- und Klimadaten von MeteoSwiss.**
+**MCP server for Swiss weather and climate data from MeteoSwiss.**
 
-Verbindet KI-Modelle mit dem SwissMetNet-Messnetz (160+ Stationen, 10-Minuten-Intervall), MeteoSwiss ICON-CH1/CH2-EPS Prognosen und Klimanormwerten 1991–2020. Teil des [swiss-public-data-mcp](https://github.com/malkreide/swiss-public-data-mcp) Portfolios.
+Connects AI models to the SwissMetNet measurement network (160+ stations, 10-minute interval), MeteoSwiss ICON-CH1/CH2-EPS forecasts and climate normals 1991–2020. Part of the [swiss-public-data-mcp](https://github.com/malkreide/swiss-public-data-mcp) portfolio.
+
+🇩🇪 [Deutsche Version](README.de.md)
 
 ---
 
-## Demo-Abfrage (Anker-Beispiel)
+## Demo query (anchor example)
 
-<img src="assets/demo.png" width="720" alt="Demo: Claude fragt nach Sporttag-Eignung → meteo_school_check Tool Call → strukturierte Wetterampel-Antwort">
-
-```
-Wie geeignet ist nächster Mittwoch für den Sporttag beim Schulhaus Leutschenbach?
-```
-
-→ `meteo_school_check(location="Zürich Oerlikon", activity="Sporttag")` liefert eine 🟢/🟡/🔴-Ampel für jeden Tag der nächsten Woche – direkt aus dem MeteoSwiss ICON-Modell.
-
-**Kombiniert mit [swiss-environment-mcp](https://github.com/malkreide/swiss-environment-mcp):**
+<img src="assets/demo.png" width="720" alt="Demo: Claude asks about sports-day suitability → meteo_school_check tool call → structured weather traffic-light response">
 
 ```
-Wie war Luftqualität und Wetter beim Schulhaus Leutschenbach gestern?
+How suitable is next Wednesday for the sports day at Leutschenbach school?
 ```
 
-→ `meteo_current(station='REH')` + `env_nabel_current(station='ZUE')` = vollständiges Umweltbild.
+→ `meteo_school_check(location="Zürich Oerlikon", activity="Sporttag")` returns a 🟢/🟡/🔴 traffic light for each day of the coming week — straight from the MeteoSwiss ICON model.
+
+**Combined with [swiss-environment-mcp](https://github.com/malkreide/swiss-environment-mcp):**
+
+```
+How were air quality and weather at Leutschenbach school yesterday?
+```
+
+→ `meteo_current(station='REH')` + `env_nabel_current(station='ZUE')` = a complete environmental picture.
 → [More use cases by audience](EXAMPLES.md) →
 
 ---
 
 ## Tools (6)
 
-| Tool | Beschreibung | Datenquelle |
+| Tool | Description | Data source |
 |------|-------------|-------------|
-| `meteo_stations` | SwissMetNet-Stationen auflisten (kanton-filterbar) | Eingebettet |
-| `meteo_current` | Aktuelle 10-min-Beobachtungen einer Station | BGDI STAC API |
-| `meteo_forecast` | 1–16 Tage Prognose für Ort oder Koordinaten | Open-Meteo / MeteoSwiss ICON |
-| `meteo_school_check` | 🟢/🟡/🔴 Ampel für Schulveranstaltungen im Freien | Open-Meteo / MeteoSwiss ICON |
-| `meteo_climate_normals` | Monatliche Klimanormwerte 1991–2020 | Eingebettet (KLO, SMA, BER, LUG, GVE) |
-| `meteo_warnings` | Aktuelle Wetterwarnungen & Links | opendata.swiss + Links |
+| `meteo_stations` | List SwissMetNet stations (filterable by canton) | Embedded |
+| `meteo_current` | Current 10-min observations for a station | BGDI STAC API |
+| `meteo_forecast` | 1–16 day forecast for a place or coordinates | Open-Meteo / MeteoSwiss ICON |
+| `meteo_school_check` | 🟢/🟡/🔴 traffic light for outdoor school events | Open-Meteo / MeteoSwiss ICON |
+| `meteo_climate_normals` | Monthly climate normals 1991–2020 | Embedded (KLO, SMA, BER, LUG, GVE) |
+| `meteo_warnings` | Current weather warnings & links | opendata.swiss + links |
 
-### Tool Annotations (MCP-Hints)
+### Tool annotations (MCP hints)
 
-Alle Tools tragen explizite [MCP-Annotations](https://modelcontextprotocol.io/specification/draft/server/tools#tool-annotations) — relevant für Client-Approval-UI und Sicherheitsentscheide des LLM.
+All tools carry explicit [MCP annotations](https://modelcontextprotocol.io/specification/draft/server/tools#tool-annotations) — relevant for the client approval UI and for the LLM's safety decisions.
 
 | Tool | `readOnlyHint` | `destructiveHint` | `idempotentHint` | `openWorldHint` |
 |------|---|---|---|---|
-| `meteo_stations` | ✅ | ✗ | ✅ | ✗ (kuratierte Liste) |
-| `meteo_current` | ✅ | ✗ | ✗ (Live-Daten) | ✅ (Upstream-STAC) |
-| `meteo_forecast` | ✅ | ✗ | ✗ (Live-Daten) | ✅ (Upstream-Open-Meteo) |
-| `meteo_school_check` | ✅ | ✗ | ✗ (Live-Daten) | ✅ (Geocoding + Forecast) |
-| `meteo_climate_normals` | ✅ | ✗ | ✅ | ✗ (eingebettete Normwerte) |
-| `meteo_warnings` | ✅ | ✗ | ✗ (Live-Daten) | ✅ (opendata.swiss) |
+| `meteo_stations` | ✅ | ✗ | ✅ | ✗ (curated list) |
+| `meteo_current` | ✅ | ✗ | ✗ (live data) | ✅ (upstream STAC) |
+| `meteo_forecast` | ✅ | ✗ | ✗ (live data) | ✅ (upstream Open-Meteo) |
+| `meteo_school_check` | ✅ | ✗ | ✗ (live data) | ✅ (geocoding + forecast) |
+| `meteo_climate_normals` | ✅ | ✗ | ✅ | ✗ (embedded normals) |
+| `meteo_warnings` | ✅ | ✗ | ✗ (live data) | ✅ (opendata.swiss) |
 
-**Lese-Regeln**: alle 6 Tools sind `readOnly + non-destructive` — der Server kann grundsätzlich nichts schreiben oder löschen. `idempotentHint=False` markiert Tools, die je nach Zeitpunkt unterschiedliche Werte liefern.
+**Read rules**: all 6 tools are `readOnly + non-destructive` — the server fundamentally cannot write or delete anything. `idempotentHint=False` marks tools that return different values depending on when they are called.
 
-### MCP Protocol Version
+### MCP protocol version
 
-| Aspekt | Wert |
+| Aspect | Value |
 |---|---|
-| Getestete Spec-Versionen | `2024-11-05`, `2025-03-26`, `2025-06-18` (via `mcp[cli]` SDK) |
-| FastMCP-SDK-Version | siehe `pyproject.toml` → `mcp[cli]>=1.0.0` |
-| Update-Policy | Dependabot bewacht `mcp[cli]`; Spec-Bumps werden im CHANGELOG mit «Tool Definition Changes»-Marker dokumentiert |
+| Tested spec versions | `2024-11-05`, `2025-03-26`, `2025-06-18` (via the `mcp[cli]` SDK) |
+| FastMCP SDK version | see `pyproject.toml` → `mcp[cli]>=1.0.0` |
+| Update policy | Dependabot watches `mcp[cli]`; spec bumps are documented in the CHANGELOG with a "Tool Definition Changes" marker |
 
-→ Vollständige Roadmap & Update-Strategie: [`docs/roadmap.md`](docs/roadmap.md)
+→ Full roadmap & update strategy: [`docs/roadmap.md`](docs/roadmap.md)
 
 ---
 
-## Schnellstart
+## Quick start
 
 ### Claude Desktop
 
@@ -86,14 +88,14 @@ Alle Tools tragen explizite [MCP-Annotations](https://modelcontextprotocol.io/sp
 }
 ```
 
-### Claude Desktop (lokale Entwicklung)
+### Claude Desktop (local development)
 
 ```json
 {
   "mcpServers": {
     "meteoswiss": {
       "command": "uv",
-      "args": ["run", "--directory", "/pfad/zu/meteoswiss-mcp", "meteoswiss-mcp"]
+      "args": ["run", "--directory", "/path/to/meteoswiss-mcp", "meteoswiss-mcp"]
     }
   }
 }
@@ -101,32 +103,32 @@ Alle Tools tragen explizite [MCP-Annotations](https://modelcontextprotocol.io/sp
 
 ### Cloud / Render.com (Streamable HTTP)
 
-Konfiguration via ENV-Variablen (CLI-Flags `--http` / `--port N` funktionieren weiterhin als Override):
+Configuration via ENV variables (the CLI flags `--http` / `--port N` still work as an override):
 
-| Variable | Default | Bedeutung |
+| Variable | Default | Meaning |
 |---|---|---|
-| `MCP_TRANSPORT` | `stdio` | `stdio` oder `streamable-http` |
-| `MCP_HOST` | `127.0.0.1` | Bind-Address — **lokal nie ändern** |
+| `MCP_TRANSPORT` | `stdio` | `stdio` or `streamable-http` |
+| `MCP_HOST` | `127.0.0.1` | Bind address — **never change locally** |
 | `MCP_PORT` | `8000` | Port |
-| `MCP_ALLOW_ANY_HOST` | _unset_ | Muss auf `1` gesetzt sein, damit der Server an `0.0.0.0` binden darf (nur in Container/Cloud) |
-| `MCP_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` — strukturierte JSON-Logs auf stderr |
-| `MCP_ALLOWED_ORIGINS` | _unset_ | Komma-separierte Liste erlaubter Origins für CORS. Leer = CORS deaktiviert (same-origin only). `Mcp-Session-Id` wird automatisch exposed. |
-| `MCP_API_KEY` | _unset_ | Wenn gesetzt: alle Requests ausser `/health` brauchen `X-API-Key: <key>` oder `Authorization: Bearer <key>`. Constant-time-Vergleich. |
-| `MCP_STATELESS_HTTP` | `0` | `1` aktiviert FastMCP-Stateless-Mode → jeder HTTP-Request öffnet eine neue Session. Voraussetzung für Multi-Replica-Deploys ohne Sticky-Sessions (SCALE-002/003). |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | _unset_ | Wenn gesetzt + `pip install meteoswiss-mcp[otel]`: OpenTelemetry-Spans pro Tool-Call + automatische httpx-Instrumentierung gehen als OTLP-HTTP an den Collector. |
-| `OTEL_SERVICE_NAME` | `meteoswiss_mcp` | Service-Name in den OTel-Resources |
-| `MCP_CACHE_ENABLED` | `1` | `0` schaltet den TTL-Cache komplett aus (z.B. für End-to-End-Tests) |
-| `MCP_CACHE_TTL_STAC` | `300` | TTL in Sekunden für STAC-SMN-Beobachtungen (default 5 min) |
-| `MCP_CACHE_TTL_OPEN_METEO` | `600` | TTL für ICON-Prognosen (default 10 min) |
-| `MCP_CACHE_TTL_GEOCODING` | `3600` | TTL für Geocoding-Lookups (default 1 h) |
-| `MCP_CACHE_TTL_OPENDATA` | `3600` | TTL für opendata.swiss-Katalog (default 1 h) |
-| `MCP_CACHE_TTL_WARNINGS` | `300` | TTL für strukturierte Warnings-API (default 5 min) |
-| `MCP_CLIMATE_NORMALS_PATH` | _unset_ | Pfad auf JSON-Datei mit zusätzlichen Klimanormwerten — siehe `data/climate-normals.example.json` |
-| `MCP_WARNINGS_API_URL` | _unset_ | URL einer strukturierten MeteoSwiss-Warnings-API. Host muss in der Egress-Allow-List stehen. Schema-tolerant (GeoJSON `features`, `warnings`-Array oder `items`). |
-| `MCP_CLIMATE_NORMALS_URL_TEMPLATE` | _unset_ | URL-Template für Runtime-Lookup von Klimanormwerten (für Stationen ohne eingebettete oder JSON-Werte). Tokens: `{station}` (lowercase), `{STATION}` (uppercase), `{param}` (MeteoSwiss-Code `tre200m0`/`rre150m0`/`sre000m0`). Beispiel: `https://data.geo.admin.ch/.../{station}/{param}.txt`. Host muss in der Egress-Allow-List stehen. |
+| `MCP_ALLOW_ANY_HOST` | _unset_ | Must be set to `1` to allow the server to bind to `0.0.0.0` (containers/cloud only) |
+| `MCP_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` — structured JSON logs on stderr |
+| `MCP_ALLOWED_ORIGINS` | _unset_ | Comma-separated list of allowed origins for CORS. Empty = CORS disabled (same-origin only). `Mcp-Session-Id` is exposed automatically. |
+| `MCP_API_KEY` | _unset_ | If set: every request except `/health` requires `X-API-Key: <key>` or `Authorization: Bearer <key>`. Constant-time comparison. |
+| `MCP_STATELESS_HTTP` | `0` | `1` enables FastMCP stateless mode → each HTTP request opens a new session. Prerequisite for multi-replica deploys without sticky sessions (SCALE-002/003). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | _unset_ | If set + `pip install meteoswiss-mcp[otel]`: OpenTelemetry spans per tool call + automatic httpx instrumentation are sent as OTLP-HTTP to the collector. |
+| `OTEL_SERVICE_NAME` | `meteoswiss_mcp` | Service name in the OTel resources |
+| `MCP_CACHE_ENABLED` | `1` | `0` disables the TTL cache entirely (e.g. for end-to-end tests) |
+| `MCP_CACHE_TTL_STAC` | `300` | TTL in seconds for STAC SMN observations (default 5 min) |
+| `MCP_CACHE_TTL_OPEN_METEO` | `600` | TTL for ICON forecasts (default 10 min) |
+| `MCP_CACHE_TTL_GEOCODING` | `3600` | TTL for geocoding lookups (default 1 h) |
+| `MCP_CACHE_TTL_OPENDATA` | `3600` | TTL for the opendata.swiss catalogue (default 1 h) |
+| `MCP_CACHE_TTL_WARNINGS` | `300` | TTL for the structured warnings API (default 5 min) |
+| `MCP_CLIMATE_NORMALS_PATH` | _unset_ | Path to a JSON file with additional climate normals — see `data/climate-normals.example.json` |
+| `MCP_WARNINGS_API_URL` | _unset_ | URL of a structured MeteoSwiss warnings API. The host must be on the egress allow-list. Schema-tolerant (GeoJSON `features`, a `warnings` array or `items`). |
+| `MCP_CLIMATE_NORMALS_URL_TEMPLATE` | _unset_ | URL template for runtime lookup of climate normals (for stations without embedded or JSON values). Tokens: `{station}` (lowercase), `{STATION}` (uppercase), `{param}` (MeteoSwiss code `tre200m0`/`rre150m0`/`sre000m0`). Example: `https://data.geo.admin.ch/.../{station}/{param}.txt`. The host must be on the egress allow-list. |
 
 ```bash
-# Lokaler Test (sicher, nur loopback)
+# Local test (safe, loopback only)
 MCP_TRANSPORT=streamable-http meteoswiss-mcp
 
 # Container / Render
@@ -135,22 +137,22 @@ MCP_TRANSPORT=streamable-http MCP_HOST=0.0.0.0 MCP_ALLOW_ANY_HOST=1 meteoswiss-m
 
 #### Docker / Render
 
-Das Repo enthält ein produktionsfertiges **Multi-Stage-Dockerfile** (non-root user, HEALTHCHECK) und ein **`render.yaml`**-Blueprint:
+The repo includes a production-ready **multi-stage Dockerfile** (non-root user, HEALTHCHECK) and a **`render.yaml`** blueprint:
 
 ```bash
-# Lokal bauen + testen
+# Build + test locally
 docker build -t meteoswiss-mcp .
 docker run --rm -p 8000:8000 meteoswiss-mcp
 curl http://127.0.0.1:8000/health   # → {"status":"ok","service":"meteoswiss-mcp"}
 ```
 
-Auf Render: «New → Blueprint» → Repo auswählen. Defaults (Plan `starter`, Frankfurt, single-instance) sind im `render.yaml` vorgegeben.
+On Render: "New → Blueprint" → select the repo. Defaults (plan `starter`, Frankfurt, single instance) are set in `render.yaml`.
 
-**Wichtig:** `numInstances: 1` ist bewusst gesetzt — Sticky-Session-Routing für Multi-Replica (Audit SCALE-002/003) ist noch nicht implementiert.
+**Important:** `numInstances: 1` is set deliberately — sticky-session routing for multi-replica (audit SCALE-002/003) is not yet implemented.
 
-#### Structured Logging
+#### Structured logging
 
-Alle Tool-Invocations, Upstream-Failures und Egress-Blocks werden als JSON-Events auf `stderr` ausgegeben (stdio-Transport-sicher). Beispiel:
+All tool invocations, upstream failures and egress blocks are emitted as JSON events on `stderr` (stdio-transport safe). Example:
 
 ```json
 {"tool": "meteo_forecast", "days": 7, "has_coords": false, "event": "tool_invoked", "level": "info", "timestamp": "2026-05-20T07:00:00Z"}
@@ -158,17 +160,17 @@ Alle Tool-Invocations, Upstream-Failures und Egress-Blocks werden als JSON-Event
 {"url": "https://evil.example.com/", "method": "GET", "reason": "host not in allow-list", "event": "egress_blocked", "level": "warning", "timestamp": "..."}
 ```
 
-#### HTTP-Modus Sicherheit
+#### HTTP-mode security
 
-- `MCP_HOST` defaultet bewusst auf `127.0.0.1`, damit `--http` auf dem Dev-Laptop nicht versehentlich ins lokale Subnetz exponiert ist (Audit-Finding SEC-016).
-- Alle ausgehenden HTTP-Calls (auch Redirect-Follows) werden gegen eine Allow-List validiert: `data.geo.admin.ch`, `api.open-meteo.com`, `geocoding-api.open-meteo.com`, `opendata.swiss`. Andere Hosts und IP-Literale (insb. `169.254.169.254`, RFC1918) werden mit `EgressBlocked` abgelehnt (SEC-004 / SEC-021).
-- **CORS**: per Default deaktiviert (same-origin only). Browser-Clients (z.B. claude.ai Web) brauchen `MCP_ALLOWED_ORIGINS=<csv>` — der `Mcp-Session-Id`-Header ist dann automatisch in `Access-Control-Expose-Headers` (SDK-004).
-- **API-Key-Auth**: per Default deaktiviert. Im produktiven HTTP-Setup unbedingt `MCP_API_KEY=<random>` setzen — Requests ohne gültigen `X-API-Key` oder `Authorization: Bearer …` werden mit 401 abgelehnt (SEC-009 / SEC-013). `/health` bleibt für Container-Health-Probes offen.
+- `MCP_HOST` deliberately defaults to `127.0.0.1` so that `--http` on a dev laptop is not accidentally exposed to the local subnet (audit finding SEC-016).
+- All outgoing HTTP calls (including redirect follows) are validated against an allow-list: `data.geo.admin.ch`, `api.open-meteo.com`, `geocoding-api.open-meteo.com`, `opendata.swiss`. Other hosts and IP literals (in particular `169.254.169.254`, RFC1918) are rejected with `EgressBlocked` (SEC-004 / SEC-021).
+- **CORS**: disabled by default (same-origin only). Browser clients (e.g. claude.ai web) need `MCP_ALLOWED_ORIGINS=<csv>` — the `Mcp-Session-Id` header is then automatically in `Access-Control-Expose-Headers` (SDK-004).
+- **API-key auth**: disabled by default. In a production HTTP setup, always set `MCP_API_KEY=<random>` — requests without a valid `X-API-Key` or `Authorization: Bearer …` are rejected with 401 (SEC-009 / SEC-013). `/health` stays open for container health probes.
 
-#### Beispiel: produktiver HTTP-Stack
+#### Example: production HTTP stack
 
 ```bash
-# 32 Bytes Zufall als Auth-Key
+# 32 bytes of randomness as the auth key
 export MCP_API_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
 
 MCP_TRANSPORT=streamable-http \
@@ -181,53 +183,53 @@ meteoswiss-mcp
 
 ---
 
-## Beispiel-Abfragen
+## Example queries
 
-### Schulplanung
+### School planning
 
 ```
-Welche Tage eignen sich nächste Woche für einen Sporttag in Zürich?
+Which days next week are suitable for a sports day in Zürich?
 → meteo_school_check(location="Zürich", activity="Sporttag")
 
-Wie wird das Wetter am Schulhaus Leutschenbach am Freitag?
+What will the weather be at Leutschenbach school on Friday?
 → meteo_forecast(location="Zürich Oerlikon", days=5)
 
-Zeig mir aktuelle Messwerte der nächsten MeteoSwiss-Station zu Zürich-Schwamendingen.
+Show me current readings from the nearest MeteoSwiss station to Zürich-Schwamendingen.
 → meteo_current(station="REH")
 ```
 
-### Klimavergleich
+### Climate comparison
 
 ```
-Wie viel Regen fällt normalerweise im Juni in Zürich?
+How much rain normally falls in June in Zürich?
 → meteo_climate_normals(station="KLO")
 
-Ist Lugano wirklich deutlich sonniger als Zürich? Zeig mir die Jahreswerte.
+Is Lugano really much sunnier than Zürich? Show me the annual values.
 → meteo_climate_normals(station="LUG") + meteo_climate_normals(station="SMA")
 ```
 
-### Infrastruktur & Umwelt
+### Infrastructure & environment
 
 ```
-Gibt es aktuell Wetterwarnungen für den Kanton Zürich?
+Are there currently any weather warnings for the canton of Zürich?
 → meteo_warnings(canton="ZH")
 
-Zeig mir eine 10-Tage-Prognose für die Schulanlage Heerenschürli mit Stundenwerten.
+Show me a 10-day forecast for the Heerenschürli sports facility with hourly values.
 → meteo_forecast(location="Sportanlage Heerenschürli Zürich", days=10, hourly=True)
 ```
 
 ---
 
-## Architektur
+## Architecture
 
 ```
-Claude Desktop / KI-Agent
+Claude Desktop / AI agent
         │
         │ MCP (stdio / Streamable HTTP)
         ▼
 meteoswiss-mcp (FastMCP)
         │
-        ├── meteo_stations ──────────────── [eingebettet: ~20 SMN-Stationen]
+        ├── meteo_stations ──────────────── [embedded: ~20 SMN stations]
         │
         ├── meteo_current ───────────────── BGDI STAC API
         │                                   data.geo.admin.ch/api/stac/v1
@@ -237,15 +239,15 @@ meteoswiss-mcp (FastMCP)
         ├── meteo_school_check ──────────── api.open-meteo.com/v1/meteoswiss
         │                                   (MeteoSwiss ICON-CH1/CH2-EPS, 1–2 km)
         │
-        ├── meteo_climate_normals ───────── [eingebettet: Normwerte 1991–2020]
+        ├── meteo_climate_normals ───────── [embedded: normals 1991–2020]
         │
-        └── meteo_warnings ──────────────── opendata.swiss CKAN + Links
+        └── meteo_warnings ──────────────── opendata.swiss CKAN + links
 ```
 
-### Datenquellen
+### Data sources
 
-| Quelle | URL | Lizenz |
-|--------|-----|--------|
+| Source | URL | License |
+|--------|-----|---------|
 | BGDI STAC API (MeteoSwiss OGD) | `data.geo.admin.ch/api/stac/v1` | CC BY 4.0 |
 | Open-Meteo (MeteoSwiss ICON) | `api.open-meteo.com/v1/meteoswiss` | CC BY 4.0 |
 | Open-Meteo Geocoding | `geocoding-api.open-meteo.com` | CC BY 4.0 |
@@ -253,7 +255,7 @@ meteoswiss-mcp (FastMCP)
 
 ---
 
-## Safety & Limits
+## Safety & limits
 
 | Aspect | Details |
 |--------|---------|
@@ -262,31 +264,31 @@ meteoswiss-mcp (FastMCP)
 | **Rate limits** | Built-in per-query caps: max 50 results per API call, 30 s timeout |
 | **Authentication** | No API keys required — all data sources are publicly accessible |
 | **Licenses** | All data under CC BY 4.0 (MeteoSwiss Open Government Data) |
-| **Terms of Service** | Subject to ToS of the respective data sources: [MeteoSwiss OGD](https://www.meteoswiss.admin.ch/services-and-publications/service/open-government-data.html), [Open-Meteo](https://open-meteo.com/en/terms), [opendata.swiss](https://opendata.swiss/de/terms-of-use) |
+| **Terms of Service** | Subject to the ToS of the respective data sources: [MeteoSwiss OGD](https://www.meteoswiss.admin.ch/services-and-publications/service/open-government-data.html), [Open-Meteo](https://open-meteo.com/en/terms), [opendata.swiss](https://opendata.swiss/en/terms-of-use) |
 
 ---
 
-## Bekannte Einschränkungen
+## Known limitations
 
-| ID | Tool | Beschreibung |
+| ID | Tool | Description |
 |----|------|-------------|
-| BUG-01 | `meteo_current` | STAC Asset-Struktur kann je nach Station variieren; Fallback zu direktem Link implementiert |
-| LIM-01 | `meteo_climate_normals` | Nur 5 Stationen eingebettet (KLO, SMA, BER, LUG, GVE); restliche via opendata.swiss-Link |
-| LIM-02 | `meteo_warnings` | Direkte Warnings-REST-API geplant ab Q2 2026 (MeteoSwiss OGD Phase 2); aktuell Links + CAP |
-| LIM-03 | `meteo_current` | Zeigt 10-min-Werte in UTC; keine automatische Umrechnung in lokale Zeit |
+| BUG-01 | `meteo_current` | STAC asset structure can vary per station; fallback to a direct link is implemented |
+| LIM-01 | `meteo_climate_normals` | Only 5 stations embedded (KLO, SMA, BER, LUG, GVE); the rest via an opendata.swiss link |
+| LIM-02 | `meteo_warnings` | A direct warnings REST API is planned from Q2 2026 (MeteoSwiss OGD phase 2); currently links + CAP |
+| LIM-03 | `meteo_current` | Shows 10-min values in UTC; no automatic conversion to local time |
 
 ---
 
-## Synergien im Portfolio
+## Portfolio synergies
 
 ```
 meteoswiss-mcp
     │
-    ├── swiss-environment-mcp   Kombiniere Wetter + Luftqualität (NABEL)
-    │                           «Wie war Wetter UND Luft beim Schulhaus Leutschenbach?»
+    ├── swiss-environment-mcp   Combine weather + air quality (NABEL)
+    │                           "How were weather AND air at Leutschenbach school?"
     │
-    └── zurich-opendata-mcp     Schulhausstandorte → Wetterprognose
-                                «Welche Schulen in Zürich haben Sporttag-Wetter?»
+    └── zurich-opendata-mcp     School locations → weather forecast
+                                "Which schools in Zürich have sports-day weather?"
 ```
 
 ---
@@ -294,10 +296,10 @@ meteoswiss-mcp
 ## Testing
 
 ```bash
-# Unit-Tests (kein Netzwerk)
+# Unit tests (no network)
 PYTHONPATH=src pytest tests/ -m "not live" -v
 
-# Live-Tests (echte APIs)
+# Live tests (real APIs)
 PYTHONPATH=src pytest tests/ -m live -v
 
 # Linting
@@ -306,7 +308,7 @@ ruff check src/ tests/
 
 ---
 
-## Entwicklung
+## Development
 
 ```bash
 git clone https://github.com/malkreide/meteoswiss-mcp
@@ -314,7 +316,7 @@ cd meteoswiss-mcp
 pip install -e ".[dev]"
 ```
 
-### MCP Inspector (lokaler Test)
+### MCP Inspector (local test)
 
 ```bash
 PYTHONPATH=src npx @modelcontextprotocol/inspector python -m meteoswiss_mcp.server
@@ -322,17 +324,26 @@ PYTHONPATH=src npx @modelcontextprotocol/inspector python -m meteoswiss_mcp.serv
 
 ---
 
-## Lizenz
+## Contributing & Security
 
-MIT License – siehe [LICENSE](LICENSE).
-
-Quelldaten: MeteoSwiss Open Government Data (CC BY 4.0).
-Bei Nutzung der Daten: **Quelle: MeteoSchweiz** angeben.
+- [Contributing guidelines](CONTRIBUTING.md) ([Deutsch](CONTRIBUTING.de.md))
+- [Security policy](SECURITY.md) ([Deutsch](SECURITY.de.md))
 
 ---
 
-## Verwandte Server
+## License
+
+MIT License – see [LICENSE](LICENSE).
+
+Source data: MeteoSwiss Open Government Data (CC BY 4.0).
+When using the data, cite: **Source: MeteoSwiss**.
+
+---
+
+## Related servers
 
 [![swiss-environment-mcp](https://img.shields.io/badge/server-swiss--environment--mcp-green)](https://github.com/malkreide/swiss-environment-mcp)
 [![zurich-opendata-mcp](https://img.shields.io/badge/server-zurich--opendata--mcp-green)](https://github.com/malkreide/zurich-opendata-mcp)
 [![swiss-transport-mcp](https://img.shields.io/badge/server-swiss--transport--mcp-green)](https://github.com/malkreide/swiss-transport-mcp)
+</content>
+</invoke>
