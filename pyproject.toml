@@ -51,7 +51,6 @@ otel = [
 meteoswiss-mcp = "meteoswiss_mcp.server:main"
 
 [project.urls]
-"mcp-name" = "io.github.malkreide/meteoswiss-mcp"
 Homepage   = "https://github.com/malkreide/meteoswiss-mcp"
 Repository = "https://github.com/malkreide/meteoswiss-mcp"
 Issues     = "https://github.com/malkreide/meteoswiss-mcp/issues"

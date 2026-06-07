@@ -347,3 +347,5 @@ When using the data, cite: **Source: MeteoSwiss**.
 [![swiss-transport-mcp](https://img.shields.io/badge/server-swiss--transport--mcp-green)](https://github.com/malkreide/swiss-transport-mcp)
 </content>
 </invoke>
+
+<!-- mcp-name: io.github.malkreide/meteoswiss-mcp -->
