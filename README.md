@@ -349,3 +349,22 @@ When using the data, cite: **Source: MeteoSwiss**.
 </invoke>
 
 <!-- mcp-name: io.github.malkreide/meteoswiss-mcp -->
+
+<!-- BEGIN GENERATED: install -->
+## Installation
+
+Run via [`uv`](https://docs.astral.sh/uv/)'s `uvx` — no clone or manual install needed. Add to your MCP client config (`mcpServers` for Claude Desktop, Cursor and Windsurf; use a top-level `servers` key for VS Code in `.vscode/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "meteoswiss-mcp": {
+      "command": "uvx",
+      "args": [
+        "meteoswiss-mcp"
+      ]
+    }
+  }
+}
+```
+<!-- END GENERATED: install -->
