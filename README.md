@@ -277,6 +277,33 @@ meteoswiss-mcp (FastMCP)
 | LIM-02 | `meteo_warnings` | A direct warnings REST API is planned from Q2 2026 (MeteoSwiss OGD phase 2); currently links + CAP |
 | LIM-03 | `meteo_current` | Shows 10-min values in UTC; no automatic conversion to local time |
 
+### Responsibility matrix — snow & precipitation (delineation vs. `swiss-environment-mcp`)
+
+To avoid duplicating **snow and precipitation** data across the portfolio,
+responsibilities are split as follows. `meteoswiss-mcp` owns atmospheric
+precipitation and weather; `swiss-environment-mcp` (SLF domain) owns snow on the
+ground and avalanche danger.
+
+| Data | meteoswiss-mcp (MeteoSwiss) | swiss-environment-mcp (BAFU / SLF) |
+|---|---|---|
+| Precipitation amount (mm): measurement network, forecast, climate normals | ✅ `meteo_current` / `meteo_forecast` / `meteo_climate_normals` | ❌ |
+| Snowfall as a current weather condition | ✅ `meteo_current` / `meteo_forecast` (weather code) | ❌ |
+| Weather warnings (storm, thunderstorm, heat) | ✅ `meteo_warnings` | ❌ |
+| Snow depth on the ground (`HS`) | ❌ | ✅ SLF IMIS / study-plot ¹ |
+| Fresh snow 24 h (`HN_1D`) | ❌ | ✅ SLF ¹ |
+| Avalanche danger level | ❌ | ✅ SLF avalanche bulletin ¹ |
+| Natural-hazard warnings (flood, avalanche, wildfire) | ❌ | ✅ `env_flood_warnings`, `env_hazard_*`, `env_wildfire_danger` |
+
+**Rule:** **atmospheric precipitation** (rain/snowfall as mm) plus weather,
+forecast, warnings and climate normals belong to `meteoswiss-mcp`; snow **on the
+ground** and **avalanche** danger belong to `swiss-environment-mcp` (SLF). The SLF
+IMIS precipitation sensor is used there only as context for the snowpack and is
+never exposed as a precipitation tool, so it does not duplicate MeteoSwiss.
+
+¹ SLF/snow tools in `swiss-environment-mcp` are in preparation (Phase-1 live-probe
+completed 2026-07-19, see that repo's `docs/probe-slf.md`); the demarcation is
+fixed now so the two servers do not collide once implemented.
+
 ---
 
 ## Portfolio synergies
