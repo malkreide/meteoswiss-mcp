@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-26
+
+Feature-Release: `meteo_warnings` liefert neu **echte Live-Warnungen** aus dem
+öffentlichen MeteoSwiss-App-Backend statt nur eines Linkstacks. Kein Breaking
+Change — bestehende Aufrufe funktionieren unverändert (neue Parameter `plz` /
+`language` sind optional).
+
 ### Added
 
 #### Live-Wetterwarnungen (`meteo_warnings`)
