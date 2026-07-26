@@ -107,51 +107,37 @@ class TestClimateNormals:
 
 class TestSchoolVerdict:
     def test_perfect_day(self):
-        emoji, verdict = _school_verdict(
-            temp=20.0, precip=0.0, wind=15.0, wmo=1, uv=3.0
-        )
+        emoji, verdict = _school_verdict(temp=20.0, precip=0.0, wind=15.0, wmo=1, uv=3.0)
         assert emoji == "🟢"
         assert "Geeignet" in verdict
 
     def test_rain_day(self):
-        emoji, verdict = _school_verdict(
-            temp=15.0, precip=5.0, wind=20.0, wmo=63, uv=1.0
-        )
+        emoji, verdict = _school_verdict(temp=15.0, precip=5.0, wind=20.0, wmo=63, uv=1.0)
         assert emoji == "🔴"
         assert "Nicht geeignet" in verdict
 
     def test_frost_day(self):
-        emoji, verdict = _school_verdict(
-            temp=-2.0, precip=0.0, wind=10.0, wmo=0, uv=2.0
-        )
+        emoji, verdict = _school_verdict(temp=-2.0, precip=0.0, wind=10.0, wmo=0, uv=2.0)
         assert emoji == "🔴"
         assert "kalt" in verdict.lower()
 
     def test_thunderstorm(self):
-        emoji, verdict = _school_verdict(
-            temp=22.0, precip=8.0, wind=60.0, wmo=95, uv=5.0
-        )
+        emoji, verdict = _school_verdict(temp=22.0, precip=8.0, wind=60.0, wmo=95, uv=5.0)
         assert emoji == "🔴"
 
     def test_uv_warning(self):
         """Hoher UV-Index → gelb, nicht rot."""
-        emoji, verdict = _school_verdict(
-            temp=28.0, precip=0.0, wind=10.0, wmo=0, uv=8.0
-        )
+        emoji, verdict = _school_verdict(temp=28.0, precip=0.0, wind=10.0, wmo=0, uv=8.0)
         assert emoji == "🟡"
         assert "UV" in verdict or "uv" in verdict.lower() or "Sonnenschutz" in verdict
 
     def test_marginal_overcast(self):
         """Bedeckt (WMO 3) → bedingt geeignet."""
-        emoji, verdict = _school_verdict(
-            temp=18.0, precip=0.0, wind=20.0, wmo=3, uv=2.0
-        )
+        emoji, verdict = _school_verdict(temp=18.0, precip=0.0, wind=20.0, wmo=3, uv=2.0)
         assert emoji in ("🟢", "🟡")
 
     def test_windy_day(self):
-        emoji, verdict = _school_verdict(
-            temp=20.0, precip=0.0, wind=70.0, wmo=0, uv=3.0
-        )
+        emoji, verdict = _school_verdict(temp=20.0, precip=0.0, wind=70.0, wmo=0, uv=3.0)
         assert emoji == "🔴"
         assert "windig" in verdict.lower()
 
@@ -224,9 +210,7 @@ async def test_meteo_climate_normals_no_data():
 async def test_meteo_climate_normals_json():
     from meteoswiss_mcp.server import ClimateNormalsInput, meteo_climate_normals
 
-    result = await meteo_climate_normals(
-        ClimateNormalsInput(station="SMA", response_format="json")
-    )
+    result = await meteo_climate_normals(ClimateNormalsInput(station="SMA", response_format="json"))
     data = json.loads(result)
     # PR-6: OGDResponse-Envelope
     assert data["payload"]["station"] == "SMA"
@@ -235,13 +219,200 @@ async def test_meteo_climate_normals_json():
     assert "retrieved_at" in data["provenance"]
 
 
+_APP_URL = "https://app-prod-ws.meteoswiss-app.ch/v1/plzDetail"
+_OPENDATA_URL = "https://opendata.swiss/"
+
+_APP_WARN_FIRE = {
+    "warnType": 10,
+    "warnLevel": 5,
+    "regionId": 2600,
+    "text": "Waldbrand-Warnung Test",
+    "validFrom": 1785060300000,
+    "outlook": False,
+    "links": [{"url": "https://www.natural-hazards.ch/.../forest-fire.html", "text": "x"}],
+}
+_APP_WARN_HEAT = {
+    "warnType": 7,
+    "warnLevel": 3,
+    "regionId": 309,
+    "text": "Hitze-Warnung Test",
+    "validFrom": 1785060300000,
+    "outlook": False,
+    "links": [{"url": "https://www.natural-hazards.ch/.../heat-wave.html", "text": "y"}],
+}
+_APP_WARN_OUTLOOK = {
+    "warnType": 2,
+    "warnLevel": 4,
+    "regionId": 111,
+    "text": "Gewitter-Vorausschau",
+    "validFrom": 1785200000000,
+    "outlook": True,
+    "links": [],
+}
+
+
+def _mock_warnings(r, warnings):
+    """Registriert App-API- + opendata-Mocks für meteo_warnings-Tests."""
+    r.get(url__startswith=_APP_URL).respond(200, json={"warnings": warnings})
+    r.get(url__startswith=_OPENDATA_URL).respond(200, json={"result": {"results": []}})
+
+
 @pytest.mark.asyncio
 async def test_meteo_warnings_markdown():
-    from meteoswiss_mcp.server import WarningsInput, meteo_warnings
+    import respx
 
-    result = await meteo_warnings(WarningsInput(canton="ZH"))
+    from meteoswiss_mcp.server import WarningsInput, _cache_clear, meteo_warnings
+
+    _cache_clear()
+    with respx.mock(assert_all_called=False) as r:
+        _mock_warnings(r, [_APP_WARN_FIRE])
+        result = await meteo_warnings(WarningsInput(canton="ZH"))
     assert "MeteoSwiss" in result
-    assert "warnings" in result.lower() or "warnung" in result.lower()
+    assert "Warnung" in result
+
+
+@pytest.mark.asyncio
+async def test_meteo_warnings_app_plz_markdown():
+    """PLZ-Detailansicht rendert echte App-Warnungen mit Typ-/Stufen-Label."""
+    import respx
+
+    from meteoswiss_mcp.server import WarningsInput, _cache_clear, meteo_warnings
+
+    _cache_clear()
+    with respx.mock(assert_all_called=False) as r:
+        _mock_warnings(r, [_APP_WARN_HEAT, _APP_WARN_FIRE, _APP_WARN_OUTLOOK])
+        result = await meteo_warnings(WarningsInput(plz="8001"))
+    assert "Aktive Warnungen (2)" in result
+    assert "Waldbrand" in result
+    assert "Hitzewelle" in result
+    # Höchste Stufe zuerst (Waldbrand Stufe 5 vor Hitze Stufe 3):
+    assert result.index("Waldbrand") < result.index("Hitzewelle")
+    # Vorausschau separat:
+    assert "Vorausschau (1)" in result
+    assert "Gewitter" in result
+
+
+@pytest.mark.asyncio
+async def test_meteo_warnings_app_json():
+    import respx
+
+    from meteoswiss_mcp.server import WarningsInput, _cache_clear, meteo_warnings
+
+    _cache_clear()
+    with respx.mock(assert_all_called=False) as r:
+        _mock_warnings(r, [_APP_WARN_FIRE, _APP_WARN_HEAT])
+        result = await meteo_warnings(WarningsInput(plz="8001", response_format="json"))
+    data = json.loads(result)
+    assert data["payload"]["quelle"] == "meteoswiss_app_api"
+    assert data["provenance"]["source"].startswith("MeteoSwiss App-API")
+    warns = data["payload"]["aktive_warnungen"]
+    fire = next(w for w in warns if w["type_code"] == 10)
+    assert fire["type_label"] == "Waldbrand"
+    assert fire["level"] == 5
+    assert fire["level_label"] == "Sehr stark"
+    assert fire["valid_from"] == "2026-07-26T10:05:00Z"
+
+
+@pytest.mark.asyncio
+async def test_meteo_warnings_nationwide_aggregation():
+    """Ohne Filter: landesweite Aggregation nach Typ, dedupliziert."""
+    import respx
+
+    from meteoswiss_mcp.server import WarningsInput, _cache_clear, meteo_warnings
+
+    _cache_clear()
+    with respx.mock(assert_all_called=False) as r:
+        # Jede PLZ liefert dieselbe Waldbrand-Warnung → nach Region dedupliziert,
+        # aber alle 26 PLZ teilen sich dieselbe regionId → 1 Gruppe.
+        _mock_warnings(r, [_APP_WARN_FIRE])
+        result = await meteo_warnings(WarningsInput())
+    assert "landesweite Übersicht" in result
+    assert "Waldbrand" in result
+
+
+@pytest.mark.asyncio
+async def test_meteo_warnings_unknown_canton():
+    import respx
+
+    from meteoswiss_mcp.server import WarningsInput, _cache_clear, meteo_warnings
+
+    _cache_clear()
+    with respx.mock(assert_all_called=False) as r:
+        _mock_warnings(r, [])
+        result = await meteo_warnings(WarningsInput(canton="XX"))
+    assert "nbekannt" in result  # "Unbekanntes Kantonskürzel"
+
+
+@pytest.mark.asyncio
+async def test_meteo_warnings_app_failure_degrades():
+    """App-API-Fehler degradiert sauber, ohne roher Stacktrace."""
+    import respx
+
+    from meteoswiss_mcp.server import WarningsInput, _cache_clear, meteo_warnings
+
+    _cache_clear()
+    with respx.mock(assert_all_called=False) as r:
+        r.get(url__startswith=_APP_URL).respond(500, json={"error": "boom"})
+        r.get(url__startswith=_OPENDATA_URL).respond(200, json={"result": {"results": []}})
+        result = await meteo_warnings(WarningsInput(plz="8001"))
+    assert "keine aktiven warnungen" in result.lower()
+    assert "fehlgeschlagen" in result.lower()
+    assert "Traceback" not in result
+    assert "app-prod-ws" not in result
+
+
+@pytest.mark.asyncio
+async def test_meteo_warnings_plz_validation():
+    from pydantic import ValidationError
+
+    from meteoswiss_mcp.server import WarningsInput
+
+    with pytest.raises(ValidationError):
+        WarningsInput(plz="ab12")
+    with pytest.raises(ValidationError):
+        WarningsInput(language="xx")
+
+
+class TestWarningHelpers:
+    def test_type_label_confirmed_codes(self):
+        from meteoswiss_mcp.server import _warn_type_label
+
+        assert _warn_type_label(7, [], "de") == "Hitzewelle"
+        assert _warn_type_label(7, [], "en") == "Heat wave"
+        assert _warn_type_label(10, [], "de") == "Waldbrand"
+        assert _warn_type_label(2, [], "fr") == "Orages"
+
+    def test_type_label_slug_fallback(self):
+        from meteoswiss_mcp.server import _warn_type_label
+
+        links = [{"url": "https://x/forest-fire.html"}]
+        assert _warn_type_label(999, links, "de") == "Waldbrand"
+
+    def test_type_label_unknown(self):
+        from meteoswiss_mcp.server import _warn_type_label
+
+        assert _warn_type_label(999, [], "de") == "warnType 999"
+
+    def test_epoch_millis_to_iso(self):
+        from meteoswiss_mcp.server import _epoch_millis_to_iso
+
+        assert _epoch_millis_to_iso(1785060300000) == "2026-07-26T10:05:00Z"
+        assert _epoch_millis_to_iso(None) is None
+        assert _epoch_millis_to_iso("nope") is None
+
+    def test_dedupe_and_sort(self):
+        from meteoswiss_mcp.server import _dedupe_warnings
+
+        a = {"type_code": 10, "level": 2, "region_id": 1, "valid_from": "t"}
+        b = {"type_code": 7, "level": 5, "region_id": 2, "valid_from": "t"}
+        out = _dedupe_warnings([a, dict(a), b])
+        assert len(out) == 2  # Duplikat entfernt
+        assert out[0]["level"] == 5  # nach Stufe absteigend
+
+    def test_app_host_allowlisted(self):
+        from meteoswiss_mcp.server import ALLOWED_HOSTS
+
+        assert "app-prod-ws.meteoswiss-app.ch" in ALLOWED_HOSTS
 
 
 # ---------------------------------------------------------------------------
@@ -287,12 +458,8 @@ async def test_meteo_school_check_mocked_geocode_empty():
     from meteoswiss_mcp.server import SchoolCheckInput, meteo_school_check
 
     with respx.mock(assert_all_called=False) as r:
-        r.get("https://geocoding-api.open-meteo.com/v1/search").respond(
-            200, json={"results": []}
-        )
-        result = await meteo_school_check(
-            SchoolCheckInput(location="xyz", activity="Sporttag")
-        )
+        r.get("https://geocoding-api.open-meteo.com/v1/search").respond(200, json={"results": []})
+        result = await meteo_school_check(SchoolCheckInput(location="xyz", activity="Sporttag"))
 
     assert "Geokodieren" in result or "nicht gefunden" in result.lower()
 
@@ -369,9 +536,7 @@ async def test_lifespan_client_blocks_disallowed_host():
         with pytest.raises((EgressBlocked, httpx.RequestError)) as exc_info:
             await appctx.http.get("https://evil.example.com/")
         # Falls httpx EgressBlocked als RequestError wrappt:
-        assert "allow-list" in str(exc_info.value) or isinstance(
-            exc_info.value, EgressBlocked
-        )
+        assert "allow-list" in str(exc_info.value) or isinstance(exc_info.value, EgressBlocked)
 
 
 # ---------------------------------------------------------------------------
@@ -581,9 +746,7 @@ async def test_cors_disabled_by_default(monkeypatch):
 
     app = _build_http_app()
     async with await _asgi_client(app) as client:
-        resp = await client.get(
-            "/health", headers={"origin": "https://example.com"}
-        )
+        resp = await client.get("/health", headers={"origin": "https://example.com"})
     assert resp.status_code == 200
     assert "access-control-allow-origin" not in resp.headers
 
@@ -624,9 +787,7 @@ async def test_cors_exposes_mcp_session_id_on_response(monkeypatch):
     async with await _asgi_client(app) as client:
         # Tatsächlicher Request mit Origin-Header → CORSMiddleware fügt
         # expose-headers an die Response an, NICHT an Preflights
-        resp = await client.get(
-            "/health", headers={"origin": "https://app.example.com"}
-        )
+        resp = await client.get("/health", headers={"origin": "https://app.example.com"})
     assert resp.status_code == 200
     expose = resp.headers.get("access-control-expose-headers", "")
     assert "Mcp-Session-Id" in expose
@@ -642,9 +803,7 @@ async def test_cors_rejects_unlisted_origin(monkeypatch):
 
     app = _build_http_app()
     async with await _asgi_client(app) as client:
-        resp = await client.get(
-            "/health", headers={"origin": "https://evil.example.com"}
-        )
+        resp = await client.get("/health", headers={"origin": "https://evil.example.com"})
     assert "access-control-allow-origin" not in resp.headers
 
 
@@ -675,9 +834,7 @@ async def test_api_key_required_when_configured(monkeypatch):
         # ohne Key
         resp_no_key = await client.post("/mcp", json={"ping": True})
         # mit falschem Key
-        resp_wrong = await client.post(
-            "/mcp", json={"ping": True}, headers={"x-api-key": "wrong"}
-        )
+        resp_wrong = await client.post("/mcp", json={"ping": True}, headers={"x-api-key": "wrong"})
         # /health bleibt offen für Container-Probes
         resp_health = await client.get("/health")
 
@@ -696,9 +853,7 @@ async def test_api_key_via_bearer_token(monkeypatch):
 
     app = _build_http_app()
     async with await _asgi_client(app) as client:
-        resp = await client.get(
-            "/health", headers={"authorization": "Bearer secret-xyz"}
-        )
+        resp = await client.get("/health", headers={"authorization": "Bearer secret-xyz"})
     # /health ist auth-bypass; aber wir prüfen separat, dass auth-Middleware
     # den Header korrekt parst:
     assert resp.status_code == 200
@@ -798,9 +953,7 @@ async def test_geocode_none_raises():
     from meteoswiss_mcp.server import _build_http_client, _geocode
 
     with respx.mock(assert_all_called=False) as r:
-        r.get("https://geocoding-api.open-meteo.com/v1/search").respond(
-            200, json={"results": []}
-        )
+        r.get("https://geocoding-api.open-meteo.com/v1/search").respond(200, json={"results": []})
         async with _build_http_client() as client:
             with pytest.raises(ValueError, match="nicht gefunden"):
                 await _geocode(client, "definitely-not-a-place-12345")
@@ -1002,8 +1155,8 @@ def test_load_extra_climate_normals_valid(tmp_path, monkeypatch):
         json.dumps(
             {
                 "DAV": {
-                    "temp_mean":  [1.0] * 12,
-                    "precip_mm":  [50.0] * 12,
+                    "temp_mean": [1.0] * 12,
+                    "precip_mm": [50.0] * 12,
                     "sunshine_h": [120.0] * 12,
                 },
                 # Überschreibt bestehendes KLO partiell
@@ -1389,6 +1542,7 @@ def test_ingest_directory_e2e_with_station_mapping(tmp_path, monkeypatch):
     import importlib
 
     from meteoswiss_mcp import server as srv
+
     importlib.reload(srv)
     assert "KLO" in srv.CLIMATE_NORMALS
     # Eingebettete KLO-Werte wurden überschrieben:

@@ -13,6 +13,8 @@ Datenquellen:
 - Open-Meteo (api.open-meteo.com): MeteoSwiss ICON-CH1/CH2-EPS Prognosen
 - Open-Meteo Geocoding: Ortsnamens-Auflösung
 - opendata.swiss: MeteoSwiss-Datenkatalog
+- MeteoSwiss App-Backend (app-prod-ws.meteoswiss-app.ch): aktive amtliche
+  Wetterwarnungen (öffentlich, ohne Auth; meteo_warnings)
 
 Alle Daten: öffentlich, keine Authentifizierung erforderlich.
 Lizenz: Creative Commons BY 4.0 (MeteoSwiss Open Government Data).
@@ -24,6 +26,7 @@ Anker-Demo:
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import ipaddress
@@ -288,6 +291,10 @@ ALLOWED_HOSTS: frozenset[str] = frozenset(
         "api.open-meteo.com",
         "geocoding-api.open-meteo.com",
         "opendata.swiss",
+        # MeteoSwiss App-Backend (undokumentierte, aber öffentliche JSON-API des
+        # offiziellen MeteoSwiss-Apps) — einzige Live-Quelle für aggregierte
+        # Wetterwarnungen bis die OGD-Warnings-REST-API verfügbar ist.
+        "app-prod-ws.meteoswiss-app.ch",
     }
 )
 
@@ -416,6 +423,298 @@ def _cache_clear() -> None:
     """Leert den gesamten Cache — primär für Tests."""
     _cache_store.clear()
     _cache_locks.clear()
+
+
+# ---------------------------------------------------------------------------
+# MeteoSwiss App-Backend: aggregierte Wetterwarnungen
+# ---------------------------------------------------------------------------
+#
+# Der offizielle MeteoSwiss-App-Server (`app-prod-ws.meteoswiss-app.ch`) liefert
+# unter `/v1/plzDetail?plz=<PLZ6>` neben Wetter/Prognose auch das Feld
+# `warnings` — die aktiven amtlichen Warnungen für die Warnregion der PLZ.
+# Es gibt (Stand 2026-07) keinen landesweiten Sammel-Endpoint, deshalb wird pro
+# Kanton eine repräsentative Kantonshauptort-PLZ abgefragt und aggregiert.
+#
+# Schema pro Warnung (empirisch verifiziert 2026-07-26):
+#   warnType   int  — Gefahrentyp (Mapping s.u.; via natural-hazards.ch-Slug
+#                      gegengeprüft: 7=Hitze, 10=Waldbrand bestätigt)
+#   warnLevel  int  — 1..5 (grün→dunkelrot)
+#   regionId   int  — MeteoSwiss-Warnregion-ID
+#   validFrom  int  — Epoch-Millis
+#   text/htmlText   — lokalisierter Warntext (via Accept-Language)
+#   outlook    bool — True = Vorausschau, noch nicht aktiv
+#   links      list — offizielle Handlungsempfehlungen
+#
+# Diese Quelle ist das App-Backend, nicht die (noch nicht existente)
+# OGD-Warnings-REST-API — undokumentiert, aber öffentlich und ohne Auth.
+
+MS_APP_BASE = "https://app-prod-ws.meteoswiss-app.ch/v1"
+
+# warnType-Code → (de, fr, it, en). 7 (Hitze) und 10 (Waldbrand) sind gegen die
+# in den `links` referenzierten natural-hazards.ch-Slugs verifiziert; die
+# übrigen folgen der etablierten MeteoSwiss-Warntyp-Nummerierung. Unbekannte
+# Codes fallen auf den Slug bzw. "warnType <n>" zurück (siehe _warn_type_label).
+WARN_TYPE_LABELS: dict[int, dict[str, str]] = {
+    1: {"de": "Wind", "fr": "Vent", "it": "Vento", "en": "Wind"},
+    2: {"de": "Gewitter", "fr": "Orages", "it": "Temporali", "en": "Thunderstorms"},
+    3: {"de": "Regen", "fr": "Pluie", "it": "Pioggia", "en": "Rain"},
+    4: {"de": "Schnee", "fr": "Neige", "it": "Neve", "en": "Snow"},
+    5: {
+        "de": "Strassenglätte",
+        "fr": "Verglas",
+        "it": "Strade ghiacciate",
+        "en": "Slippery roads",
+    },
+    6: {"de": "Frost", "fr": "Gel", "it": "Gelo", "en": "Frost"},
+    7: {"de": "Hitzewelle", "fr": "Canicule", "it": "Canicola", "en": "Heat wave"},
+    8: {"de": "Hochwasser", "fr": "Crues", "it": "Piene", "en": "Flood"},
+    9: {"de": "Lawinen", "fr": "Avalanches", "it": "Valanghe", "en": "Avalanches"},
+    10: {
+        "de": "Waldbrand",
+        "fr": "Feux de forêt",
+        "it": "Incendi boschivi",
+        "en": "Forest fire",
+    },
+    11: {"de": "Erdbeben", "fr": "Séisme", "it": "Terremoto", "en": "Earthquake"},
+}
+
+# natural-hazards.ch-URL-Slug → warnType (Fallback-Auflösung für unbekannte Codes)
+_SLUG_TO_WARN_TYPE: dict[str, int] = {
+    "wind": 1,
+    "thunderstorm": 2,
+    "thunderstorms": 2,
+    "rain": 3,
+    "snow": 4,
+    "snowfall": 4,
+    "slipperiness": 5,
+    "slippery-roads": 5,
+    "frost": 6,
+    "heat-wave": 7,
+    "flood": 8,
+    "floods": 8,
+    "avalanches": 9,
+    "avalanche": 9,
+    "forest-fire": 10,
+    "earthquakes": 11,
+    "earthquake": 11,
+}
+
+WARN_LEVEL_LABELS: dict[int, dict[str, str]] = {
+    1: {"de": "Keine/gering", "fr": "Nul/faible", "it": "Nullo/debole", "en": "None/minor"},
+    2: {"de": "Gering", "fr": "Faible", "it": "Debole", "en": "Minor"},
+    3: {"de": "Mässig", "fr": "Modéré", "it": "Moderato", "en": "Moderate"},
+    4: {"de": "Stark", "fr": "Fort", "it": "Forte", "en": "Severe"},
+    5: {"de": "Sehr stark", "fr": "Très fort", "it": "Molto forte", "en": "Very severe"},
+}
+
+# Kanton → repräsentative Kantonshauptort-PLZ (6-stellig: 4-stellige PLZ + "00").
+# Für die landesweite Aggregation und den Kantons-Filter. Bewusst je genau eine
+# PLZ pro Kanton — die App-API ist PLZ- (Warnregion-)basiert; der Hauptort deckt
+# die bevölkerungsreichste Warnregion ab (Einschränkung dokumentiert).
+CANTON_CAPITAL_PLZ: dict[str, int] = {
+    "ZH": 800100,  # Zürich
+    "BE": 301100,  # Bern
+    "LU": 600300,  # Luzern
+    "UR": 646000,  # Altdorf
+    "SZ": 643000,  # Schwyz
+    "OW": 606000,  # Sarnen
+    "NW": 637000,  # Stans
+    "GL": 875000,  # Glarus
+    "ZG": 630000,  # Zug
+    "FR": 170000,  # Fribourg
+    "SO": 450000,  # Solothurn
+    "BS": 400100,  # Basel
+    "BL": 441000,  # Liestal
+    "SH": 820000,  # Schaffhausen
+    "AR": 910000,  # Herisau
+    "AI": 905000,  # Appenzell
+    "SG": 900000,  # St. Gallen
+    "GR": 700000,  # Chur
+    "AG": 500000,  # Aarau
+    "TG": 850000,  # Frauenfeld
+    "TI": 650000,  # Bellinzona
+    "VD": 100300,  # Lausanne
+    "VS": 195000,  # Sion
+    "NE": 200000,  # Neuchâtel
+    "GE": 120100,  # Genève
+    "JU": 280000,  # Delémont
+}
+
+_WARN_LANGS = frozenset({"de", "fr", "it", "en"})
+
+
+def _warn_type_label(warn_type: Any, links: Any, lang: str) -> str:
+    """Löst einen warnType-Code zu einem lesbaren Label auf.
+
+    Primär via `WARN_TYPE_LABELS`; bei unbekanntem Code Fallback auf den
+    natural-hazards.ch-Slug aus `links`; sonst "warnType <n>".
+    """
+    labels = WARN_TYPE_LABELS.get(warn_type) if isinstance(warn_type, int) else None
+    if labels is None and isinstance(links, list):
+        for link in links:
+            url = link.get("url", "") if isinstance(link, dict) else ""
+            for slug, code in _SLUG_TO_WARN_TYPE.items():
+                if f"/{slug}.html" in url:
+                    labels = WARN_TYPE_LABELS.get(code)
+                    break
+            if labels is not None:
+                break
+    if labels is not None:
+        return labels.get(lang) or labels.get("en") or labels.get("de")
+    return f"warnType {warn_type}"
+
+
+def _epoch_millis_to_iso(value: Any) -> str | None:
+    """Wandelt Epoch-Millisekunden in einen ISO-8601-UTC-String."""
+    if not isinstance(value, (int, float)):
+        return None
+    from datetime import UTC, datetime
+
+    try:
+        return datetime.fromtimestamp(value / 1000, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _normalize_app_warning(raw: Any, lang: str) -> dict[str, Any] | None:
+    """Normalisiert eine einzelne App-API-Warnung auf ein stabiles Schema."""
+    if not isinstance(raw, dict):
+        return None
+    warn_type = raw.get("warnType")
+    links = raw.get("links") or []
+    text = (raw.get("text") or raw.get("htmlText") or "").strip()
+    level = raw.get("warnLevel")
+    return {
+        "type_code": warn_type,
+        "type_label": _warn_type_label(warn_type, links, lang),
+        "level": level,
+        "level_label": (
+            WARN_LEVEL_LABELS.get(level, {}).get(lang)
+            or WARN_LEVEL_LABELS.get(level, {}).get("en")
+            if isinstance(level, int)
+            else None
+        ),
+        "region_id": raw.get("regionId"),
+        "valid_from": _epoch_millis_to_iso(raw.get("validFrom")),
+        "outlook": bool(raw.get("outlook")),
+        "text": text,
+        "link": next(
+            (link.get("url") for link in links if isinstance(link, dict) and link.get("url")),
+            None,
+        ),
+    }
+
+
+async def _fetch_app_warnings(
+    client: httpx.AsyncClient, plz6: int, lang: str
+) -> list[dict[str, Any]]:
+    """Ruft die Warnungen einer PLZ vom MeteoSwiss-App-Backend ab (gecacht)."""
+    url = f"{MS_APP_BASE}/plzDetail?plz={plz6}"
+
+    async def _do_fetch():
+        resp = await client.get(url, headers={"Accept-Language": lang})
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("warnings") or []
+
+    raw_warnings = await _cached("warnings_api", (plz6, lang), _do_fetch)
+    normalized = [_normalize_app_warning(w, lang) for w in raw_warnings]
+    return [w for w in normalized if w is not None]
+
+
+def _dedupe_warnings(warnings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Entfernt Duplikate (gleicher Typ+Stufe+Region), sortiert nach Stufe desc."""
+    seen: set[tuple] = set()
+    unique: list[dict[str, Any]] = []
+    for w in warnings:
+        key = (w.get("type_code"), w.get("level"), w.get("region_id"), w.get("valid_from"))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(w)
+    unique.sort(key=lambda w: (w.get("level") or 0), reverse=True)
+    return unique
+
+
+async def _collect_app_warnings(
+    client: httpx.AsyncClient, plz_list: list[int], lang: str
+) -> tuple[list[dict[str, Any]], int]:
+    """Aggregiert Warnungen über mehrere PLZ hinweg.
+
+    Gibt (deduplizierte Warnungen, Anzahl fehlgeschlagener Abfragen) zurück.
+    Einzelne Fehlschläge degradieren nicht den ganzen Aufruf.
+    """
+    results = await asyncio.gather(
+        *(_fetch_app_warnings(client, plz, lang) for plz in plz_list),
+        return_exceptions=True,
+    )
+    collected: list[dict[str, Any]] = []
+    failures = 0
+    for res in results:
+        if isinstance(res, BaseException):
+            failures += 1
+            logger.warning(
+                "upstream_failed",
+                tool="meteo_warnings",
+                endpoint="app_warnings",
+                error_type=res.__class__.__name__,
+            )
+            continue
+        collected.extend(res)
+    return _dedupe_warnings(collected), failures
+
+
+def _warning_table_row(w: dict[str, Any]) -> str:
+    """Rendert eine App-Warnung als Markdown-Tabellenzeile (Detailansicht)."""
+    level = w.get("level") or "–"
+    level_label = w.get("level_label") or ""
+    level_cell = f"{level} ({level_label})" if level_label else str(level)
+    region = w.get("region_id") or "–"
+    valid_from = w.get("valid_from") or "–"
+    # Text auf eine Zeile + Länge begrenzen, Pipes escapen (Tabellen-sicher).
+    text = " ".join((w.get("text") or "").split())[:90].replace("|", "/")
+    return f"| {level_cell} | {w.get('type_label')} | {region} | {valid_from} | {text} |"
+
+
+def _aggregate_warnings_by_type(warnings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Gruppiert Warnungen nach Typ für die landesweite Übersicht.
+
+    Pro Typ: höchste Stufe, Anzahl betroffener Regionen, ein Beispieltext.
+    Sortiert nach höchster Stufe absteigend.
+    """
+    groups: dict[Any, dict[str, Any]] = {}
+    for w in warnings:
+        code = w.get("type_code")
+        level = w.get("level") or 0
+        g = groups.get(code)
+        if g is None:
+            g = {
+                "type_code": code,
+                "type_label": w.get("type_label"),
+                "max_level": level,
+                "region_ids": set(),
+                "sample_text": " ".join((w.get("text") or "").split())[:70].replace("|", "/"),
+            }
+            groups[code] = g
+        g["region_ids"].add(w.get("region_id"))
+        if level > g["max_level"]:
+            g["max_level"] = level
+            if w.get("text"):
+                g["sample_text"] = " ".join(w["text"].split())[:70].replace("|", "/")
+    out: list[dict[str, Any]] = []
+    for g in groups.values():
+        out.append(
+            {
+                "type_code": g["type_code"],
+                "type_label": g["type_label"],
+                "max_level": g["max_level"],
+                "max_level_label": (WARN_LEVEL_LABELS.get(g["max_level"], {}).get("de") or ""),
+                "region_count": len(g["region_ids"]),
+                "sample_text": g["sample_text"],
+            }
+        )
+    out.sort(key=lambda g: g["max_level"], reverse=True)
+    return out
 
 
 def _normalize_warnings_response(
@@ -775,7 +1074,36 @@ class WarningsInput(BaseModel):
         description="Kantonskürzel zum Filtern (z.B. 'ZH') – leer = ganze Schweiz",
         max_length=2,
     )
+    plz: str = Field(
+        default="",
+        description=(
+            "4-stellige Schweizer PLZ für ortsgenaue Warnungen (z.B. '8001'). "
+            "Präziser als 'canton'; leer = kanton- bzw. landesweite Aggregation."
+        ),
+        max_length=4,
+    )
+    language: str = Field(
+        default="de",
+        description="Sprache der Warntexte: 'de', 'fr', 'it' oder 'en'.",
+        max_length=2,
+    )
     response_format: ResponseFormat = Field(default=ResponseFormat.MARKDOWN)
+
+    @field_validator("plz")
+    @classmethod
+    def _digits_only(cls, v: str) -> str:
+        v = v.strip()
+        if v and not v.isdigit():
+            raise ValueError("plz muss numerisch sein (z.B. '8001')")
+        return v
+
+    @field_validator("language")
+    @classmethod
+    def _known_lang(cls, v: str) -> str:
+        v = v.strip().lower() or "de"
+        if v not in _WARN_LANGS:
+            raise ValueError("language muss 'de', 'fr', 'it' oder 'en' sein")
+        return v
 
 
 # ---------------------------------------------------------------------------
@@ -1955,41 +2283,63 @@ async def meteo_climate_normals(
 @_traced_tool("meteo_warnings")
 async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> str:
     """<use_case>
-    Aktuelle MeteoSwiss-Wetterwarnungen (Gewitter, Starkregen, Sturm,
-    Schnee, Hitze, Frost, ...) auflisten. Liefert die offizielle Warnkarte
-    + MeteoAlarm-Link + opendata.swiss-Datensätze.
+    Aktive amtliche MeteoSwiss-Wetterwarnungen (Gewitter, Sturm, Starkregen,
+    Schnee, Hitze, Frost, Waldbrand, ...) live abrufen — landesweit, pro Kanton
+    oder ortsgenau via PLZ. Ergänzt um Warnkarte, MeteoAlarm und OGD-Katalog.
     </use_case>
 
     <important_notes>
-    - MeteoSwiss Warnings-API als REST ist erst ab OGD Phase 2 (geplant
-      Q2 2026) verfügbar; bis dahin liefert dieses Tool den Linkstack.
-    - Warnstufen-Skala: 1=Keine, 2=Gering, 3=Mässig, 4=Stark, 5=Sehr stark.
+    - Live-Quelle ist das öffentliche MeteoSwiss-App-Backend
+      (`app-prod-ws.meteoswiss-app.ch/v1/plzDetail`); es gibt keinen landesweiten
+      Sammel-Endpoint, daher wird ohne `plz`/`canton` je eine Kantonshauptort-PLZ
+      pro Kanton abgefragt und aggregiert. Für ortsgenaue Warnungen `plz` setzen.
+    - Warnstufen-Skala: 1=Keine/gering, 2=Gering, 3=Mässig, 4=Stark, 5=Sehr stark.
     - Bei aktiven Warnungen Stufe 4+: Aussenveranstaltungen verschieben.
+    - `MCP_WARNINGS_API_URL` überschreibt die App-Quelle (Vorbereitung auf die
+      künftige offizielle OGD-Warnings-REST-API).
     </important_notes>
 
     <example>
-    meteo_warnings(canton="ZH")  → Linkstack für Kanton Zürich
-    meteo_warnings()             → ganze Schweiz
+    meteo_warnings(plz="8001")    → ortsgenaue Warnungen für Zürich-City
+    meteo_warnings(canton="TI")   → Warnungen für das Tessin
+    meteo_warnings()              → landesweite Aggregation über alle Kantone
     </example>
 
     Args:
         params (WarningsInput):
             - canton: Kantonskürzel zum Filtern (z.B. 'ZH')
+            - plz: 4-stellige PLZ für ortsgenaue Warnungen (z.B. '8001')
+            - language: 'de' | 'fr' | 'it' | 'en' (Sprache der Warntexte)
             - response_format: 'markdown' oder 'json'
 
     Returns:
-        str: Links zu aktuellen MeteoSwiss-Warnungen und Warnkarte.
+        str: Aktive Warnungen + Warnkarte/MeteoAlarm-Links.
     """
-    logger.info("tool_invoked", tool="meteo_warnings", canton=params.canton or "all")
-
     canton_filter = params.canton.upper() if params.canton else ""
+    plz_query = params.plz
+    lang = params.language
+    logger.info(
+        "tool_invoked",
+        tool="meteo_warnings",
+        canton=canton_filter or "all",
+        plz=plz_query or "",
+        lang=lang,
+    )
 
-    # Phase 2: optionale strukturierte Warnings-API. ENV-konfigurierbar, damit
-    # der Code sofort umgestellt ist, sobald MeteoSwiss eine echte REST-API
-    # liefert (OGD Phase 2, geplant Q2 2026+). Der Host muss in der Egress-
-    # Allow-List stehen — siehe ALLOWED_HOSTS.
+    # Bevorzugt eine explizit konfigurierte OGD-Warnings-REST-API (Zukunft);
+    # per Default die öffentliche MeteoSwiss-App-Quelle.
     warnings_api_url = os.environ.get("MCP_WARNINGS_API_URL", "").strip()
+    # Aktive Warnungen im App-Schema (type_code/type_label/level/region_id/...).
+    app_warnings: list[dict[str, Any]] = []
+    # Aktive Warnungen im ENV-Override-Schema (type/level/regions/...).
     structured_warnings: list[dict[str, Any]] | None = None
+    warn_scope = (
+        f"PLZ {plz_query}"
+        if plz_query
+        else (f"Kanton {canton_filter}" if canton_filter else "Ganze Schweiz")
+    )
+    unknown_canton = False
+    app_failures = 0
 
     if warnings_api_url:
         try:
@@ -2022,8 +2372,46 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
                 await ctx.warning(
                     f"Warnings-API-Fetch fehlgeschlagen: {_sanitize_error(exc)}"
                 )
+    else:
+        # MeteoSwiss-App-Backend: PLZ-Liste je nach Filter bestimmen.
+        if plz_query:
+            plz_list = [int(plz_query + "00")]
+        elif canton_filter:
+            plz6 = CANTON_CAPITAL_PLZ.get(canton_filter)
+            if plz6 is None:
+                unknown_canton = True
+                plz_list = []
+            else:
+                plz_list = [plz6]
+        else:
+            plz_list = sorted(set(CANTON_CAPITAL_PLZ.values()))
 
-    # Linkstack-Fallback: opendata.swiss-Katalog (immer als ergänzende Info)
+        if plz_list:
+            try:
+                async with _http_client(ctx) as client:
+                    app_warnings, app_failures = await _collect_app_warnings(
+                        client, plz_list, lang
+                    )
+                logger.info(
+                    "warnings_app_ok",
+                    count=len(app_warnings),
+                    queried=len(plz_list),
+                    failures=app_failures,
+                    scope=warn_scope,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "upstream_failed",
+                    tool="meteo_warnings",
+                    endpoint="app_warnings",
+                    error_type=exc.__class__.__name__,
+                )
+                if ctx is not None:
+                    await ctx.warning(
+                        f"MeteoSwiss-App-Fetch fehlgeschlagen: {_sanitize_error(exc)}"
+                    )
+
+    # Linkstack-Ergänzung: opendata.swiss-Katalog (immer als ergänzende Info)
     cap_url = "https://opendata.swiss/api/3/action/package_search?q=meteoschweiz+warnungen&rows=5"
 
     try:
@@ -2049,29 +2437,94 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
 
     lines = [
         "## ⚠️ MeteoSwiss Wetterwarnungen\n",
-        f"*{('Kanton ' + canton_filter) if canton_filter else 'Ganze Schweiz'} | Quelle: MeteoSwiss*\n",
+        f"*{warn_scope} | Quelle: MeteoSwiss*\n",
     ]
 
-    # Wenn die strukturierte API aktiv ist + Daten geliefert hat: zuerst rendern.
-    if structured_warnings:
+    if unknown_canton:
         lines += [
-            f"### Aktive Warnungen ({len(structured_warnings)})",
-            "| Stufe | Typ | Region | Gültig bis | Hinweis |",
-            "|-------|-----|--------|------------|---------|",
-        ]
-        for w in structured_warnings:
-            level = w.get("level") or "–"
-            wtype = w.get("type") or "–"
-            regions = ", ".join(w.get("regions") or []) or "–"
-            until = w.get("valid_until") or "–"
-            text = (w.get("text") or "")[:80]
-            lines.append(f"| {level} | {wtype} | {regions} | {until} | {text} |")
-        lines.append("")
-    elif warnings_api_url:
-        lines += [
-            "_Keine aktiven Warnungen (strukturierte API lieferte 0 Einträge)._",
+            f"_Unbekanntes Kantonskürzel '{canton_filter}'. Gültig: "
+            + ", ".join(sorted(CANTON_CAPITAL_PLZ)),
             "",
         ]
+
+    # ENV-Override-API (altes Schema): rendern, wenn aktiv.
+    if warnings_api_url:
+        if structured_warnings:
+            lines += [
+                f"### Aktive Warnungen ({len(structured_warnings)})",
+                "| Stufe | Typ | Region | Gültig bis | Hinweis |",
+                "|-------|-----|--------|------------|---------|",
+            ]
+            for w in structured_warnings:
+                level = w.get("level") or "–"
+                wtype = w.get("type") or "–"
+                regions = ", ".join(w.get("regions") or []) or "–"
+                until = w.get("valid_until") or "–"
+                text = (w.get("text") or "")[:80]
+                lines.append(f"| {level} | {wtype} | {regions} | {until} | {text} |")
+            lines.append("")
+        else:
+            lines += [
+                "_Keine aktiven Warnungen (strukturierte API lieferte 0 Einträge)._",
+                "",
+            ]
+    else:
+        # MeteoSwiss-App-Quelle (neues Schema).
+        active = [w for w in app_warnings if not w.get("outlook")]
+        outlook = [w for w in app_warnings if w.get("outlook")]
+        if not app_warnings:
+            lines += [
+                "✅ _Zurzeit keine aktiven Warnungen für diesen Perimeter._",
+                "",
+            ]
+        else:
+            if plz_query or canton_filter:
+                # Detailansicht (ein Perimeter).
+                lines += [
+                    f"### Aktive Warnungen ({len(active)})",
+                    "| Stufe | Typ | Region | Gültig ab | Hinweis |",
+                    "|-------|-----|--------|-----------|---------|",
+                ]
+                for w in active:
+                    lines.append(_warning_table_row(w))
+                if outlook:
+                    lines += ["", f"### Vorausschau ({len(outlook)})"]
+                    lines += [
+                        "| Stufe | Typ | Region | Gültig ab |",
+                        "|-------|-----|--------|-----------|",
+                    ]
+                    for w in outlook:
+                        lines.append(
+                            f"| {w.get('level') or '–'} | {w.get('type_label')} "
+                            f"| {w.get('region_id') or '–'} | {w.get('valid_from') or '–'} |"
+                        )
+                lines.append("")
+            else:
+                # Landesweite Aggregation: nach Typ gruppiert.
+                grouped = _aggregate_warnings_by_type(active)
+                lines += [
+                    f"### Aktive Warnungen — landesweite Übersicht ({len(active)} in "
+                    f"{len(grouped)} Typen)",
+                    "| Höchste Stufe | Typ | Betroffene Regionen | Beispiel-Hinweis |",
+                    "|---------------|-----|---------------------|------------------|",
+                ]
+                for g in grouped:
+                    lines.append(
+                        f"| {g['max_level']} ({g['max_level_label']}) | {g['type_label']} "
+                        f"| {g['region_count']} | {g['sample_text']} |"
+                    )
+                lines += [
+                    "",
+                    "_Aggregation über je eine Kantonshauptort-PLZ pro Kanton; "
+                    "für Details einen Kanton oder eine PLZ angeben._",
+                    "",
+                ]
+        if app_failures:
+            lines += [
+                f"_Hinweis: {app_failures} PLZ-Abfrage(n) fehlgeschlagen — "
+                "Übersicht ggf. unvollständig._",
+                "",
+            ]
 
     lines += [
         "### Direkte Warnungsübersicht",
@@ -2111,42 +2564,49 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
 
     if params.response_format == ResponseFormat.JSON:
         payload: dict[str, Any] = {
+            "scope": warn_scope,
             "kanton_filter": canton_filter or "alle",
+            "plz_filter": plz_query or None,
+            "sprache": lang,
             "warnungen_url": "https://www.meteoswiss.admin.ch/warnings.html",
             "meteoalarm_url": "https://www.meteoalarm.org/en/live/country/?s=CH",
             "ogd_datensaetze": datasets[:3],
         }
         if warnings_api_url:
+            payload["quelle"] = "override"
             payload["warnings_api_active"] = True
             payload["warnings_api_url"] = warnings_api_url
             payload["aktive_warnungen"] = structured_warnings or []
         else:
-            payload["warnings_api_active"] = False
-            payload["hinweis"] = (
-                "Strukturierte API nicht konfiguriert. Setze MCP_WARNINGS_API_URL, "
-                "wenn MeteoSwiss OGD Phase 2 (geplant Q2 2026) eine REST-API liefert."
-            )
+            payload["quelle"] = "meteoswiss_app_api"
+            payload["warnings_api_active"] = True
+            payload["aktive_warnungen"] = [
+                w for w in app_warnings if not w.get("outlook")
+            ]
+            payload["vorausschau"] = [w for w in app_warnings if w.get("outlook")]
+            if not (plz_query or canton_filter):
+                payload["zusammenfassung"] = _aggregate_warnings_by_type(
+                    [w for w in app_warnings if not w.get("outlook")]
+                )
+            if app_failures:
+                payload["fehlgeschlagene_abfragen"] = app_failures
+            if unknown_canton:
+                payload["fehler"] = f"unbekannter Kanton: {canton_filter}"
         return json.dumps(
             _ogd_envelope(
                 payload,
                 source=(
-                    "MeteoSwiss Warnings API"
+                    "MeteoSwiss Warnings API (Override)"
                     if warnings_api_url
-                    else "MeteoSwiss Warnings (Linkstack + opendata.swiss-Katalog)"
+                    else "MeteoSwiss App-API (plzDetail)"
                 ),
-                data_source_url=(
-                    warnings_api_url
-                    or "https://www.meteoswiss.admin.ch/warnings.html"
-                ),
+                data_source_url=(warnings_api_url or f"{MS_APP_BASE}/plzDetail"),
             ),
             ensure_ascii=False,
             indent=2,
         )
 
     lines += [
-        "",
-        "**Hinweis:** Die direkte MeteoSwiss Warnings-REST-API wird mit",
-        "OGD Phase 2 (geplant: Q2 2026) verfügbar sein.",
         "",
         "*→ `meteo_school_check` für Schuleignungs-Ampel | `meteo_forecast` für Prognose*",
     ]
