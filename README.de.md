@@ -44,7 +44,7 @@ Wie war Luftqualität und Wetter beim Schulhaus Leutschenbach gestern?
 | `meteo_forecast` | 1–16 Tage Prognose für Ort oder Koordinaten | Open-Meteo / MeteoSwiss ICON |
 | `meteo_school_check` | 🟢/🟡/🔴 Ampel für Schulveranstaltungen im Freien | Open-Meteo / MeteoSwiss ICON |
 | `meteo_climate_normals` | Monatliche Klimanormwerte 1991–2020 | Eingebettet (KLO, SMA, BER, LUG, GVE) |
-| `meteo_warnings` | Aktuelle Wetterwarnungen & Links | opendata.swiss + Links |
+| `meteo_warnings` | Aktive amtliche Wetterwarnungen (Sturm, Gewitter, Hitze, Waldbrand, …) — landesweit, pro Kanton oder pro PLZ | MeteoSwiss App-API + opendata.swiss |
 
 ### Tool Annotations (MCP-Hints)
 
@@ -57,7 +57,7 @@ Alle Tools tragen explizite [MCP-Annotations](https://modelcontextprotocol.io/sp
 | `meteo_forecast` | ✅ | ✗ | ✗ (Live-Daten) | ✅ (Upstream-Open-Meteo) |
 | `meteo_school_check` | ✅ | ✗ | ✗ (Live-Daten) | ✅ (Geocoding + Forecast) |
 | `meteo_climate_normals` | ✅ | ✗ | ✅ | ✗ (eingebettete Normwerte) |
-| `meteo_warnings` | ✅ | ✗ | ✗ (Live-Daten) | ✅ (opendata.swiss) |
+| `meteo_warnings` | ✅ | ✗ | ✗ (Live-Daten) | ✅ (MeteoSwiss App-API) |
 
 **Lese-Regeln**: alle 6 Tools sind `readOnly + non-destructive` — der Server kann grundsätzlich nichts schreiben oder löschen. `idempotentHint=False` markiert Tools, die je nach Zeitpunkt unterschiedliche Werte liefern.
 
@@ -122,9 +122,9 @@ Konfiguration via ENV-Variablen (CLI-Flags `--http` / `--port N` funktionieren w
 | `MCP_CACHE_TTL_OPEN_METEO` | `600` | TTL für ICON-Prognosen (default 10 min) |
 | `MCP_CACHE_TTL_GEOCODING` | `3600` | TTL für Geocoding-Lookups (default 1 h) |
 | `MCP_CACHE_TTL_OPENDATA` | `3600` | TTL für opendata.swiss-Katalog (default 1 h) |
-| `MCP_CACHE_TTL_WARNINGS` | `300` | TTL für strukturierte Warnings-API (default 5 min) |
+| `MCP_CACHE_TTL_WARNINGS` | `300` | TTL für Warnungen (MeteoSwiss App-API / strukturierter Override; default 5 min) |
 | `MCP_CLIMATE_NORMALS_PATH` | _unset_ | Pfad auf JSON-Datei mit zusätzlichen Klimanormwerten — siehe `data/climate-normals.example.json` |
-| `MCP_WARNINGS_API_URL` | _unset_ | URL einer strukturierten MeteoSwiss-Warnings-API. Host muss in der Egress-Allow-List stehen. Schema-tolerant (GeoJSON `features`, `warnings`-Array oder `items`). |
+| `MCP_WARNINGS_API_URL` | _unset_ | **Override** der Default-Quelle (MeteoSwiss App-API): URL einer strukturierten MeteoSwiss-Warnings-API (z.B. die künftige OGD-Warnings-REST-API). Host muss in der Egress-Allow-List stehen. Schema-tolerant (GeoJSON `features`, `warnings`-Array oder `items`). Unset → Live-App-API. |
 | `MCP_CLIMATE_NORMALS_URL_TEMPLATE` | _unset_ | URL-Template für Runtime-Lookup von Klimanormwerten (für Stationen ohne eingebettete oder JSON-Werte). Tokens: `{station}` (lowercase), `{STATION}` (uppercase), `{param}` (MeteoSwiss-Code `tre200m0`/`rre150m0`/`sre000m0`). Beispiel: `https://data.geo.admin.ch/.../{station}/{param}.txt`. Host muss in der Egress-Allow-List stehen. |
 
 ```bash
@@ -241,7 +241,8 @@ meteoswiss-mcp (FastMCP)
         │
         ├── meteo_climate_normals ───────── [eingebettet: Normwerte 1991–2020]
         │
-        └── meteo_warnings ──────────────── opendata.swiss CKAN + Links
+        └── meteo_warnings ──────────────── app-prod-ws.meteoswiss-app.ch
+                                            (MeteoSwiss App-API) + opendata.swiss
 ```
 
 ### Datenquellen
@@ -252,6 +253,7 @@ meteoswiss-mcp (FastMCP)
 | Open-Meteo (MeteoSwiss ICON) | `api.open-meteo.com/v1/meteoswiss` | CC BY 4.0 |
 | Open-Meteo Geocoding | `geocoding-api.open-meteo.com` | CC BY 4.0 |
 | opendata.swiss CKAN | `opendata.swiss/api/3/action` | CC BY 4.0 |
+| MeteoSwiss App-API (Warnungen) | `app-prod-ws.meteoswiss-app.ch/v1/plzDetail` | CC BY 4.0 |
 
 ---
 
@@ -274,7 +276,7 @@ meteoswiss-mcp (FastMCP)
 |----|------|-------------|
 | BUG-01 | `meteo_current` | STAC Asset-Struktur kann je nach Station variieren; Fallback zu direktem Link implementiert |
 | LIM-01 | `meteo_climate_normals` | Nur 5 Stationen eingebettet (KLO, SMA, BER, LUG, GVE); restliche via opendata.swiss-Link |
-| LIM-02 | `meteo_warnings` | Direkte Warnings-REST-API geplant ab Q2 2026 (MeteoSwiss OGD Phase 2); aktuell Links + CAP |
+| LIM-02 | `meteo_warnings` | Live-Warnungen stammen aus der **MeteoSwiss App-API** (`plzDetail`) — öffentlich und ohne Auth, aber undokumentiert (App-Backend, nicht die OGD-REST-API). Es gibt keinen landesweiten Endpoint, daher aggregiert die Schweiz-Sicht je eine Kantonshauptort-PLZ pro Kanton (sub-regionale Warnungen ausserhalb dieser PLZ können fehlen — mit `plz`/`canton` eingrenzen). `MCP_WARNINGS_API_URL` überschreibt die Quelle, sobald die offizielle OGD-Warnings-REST-API verfügbar ist. |
 | LIM-03 | `meteo_current` | Zeigt 10-min-Werte in UTC; keine automatische Umrechnung in lokale Zeit |
 
 ### Zuständigkeitsmatrix — Schnee & Niederschlag (Abgrenzung zu `swiss-environment-mcp`)

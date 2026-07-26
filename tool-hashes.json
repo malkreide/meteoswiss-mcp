@@ -2,27 +2,27 @@
   "namespace": "meteoswiss_mcp",
   "tools": {
     "meteo_stations": {
-      "hash": "sha256:02bae3ceaf0179e1545e6cd8342e85f0a6b9243536ac84b2e3c2f34ce7874825",
+      "hash": "sha256:836df0e81a6b296ba68170af602ba67ffd4e492306d46bd2947e2711a90fe077",
       "title": "SwissMetNet-Stationen auflisten"
     },
     "meteo_current": {
-      "hash": "sha256:e332333a1ce6ccf481d37e3dd4d0ccad2e250c7d741ae361d5d4fd45403f3436",
+      "hash": "sha256:faeee4281f14a5606334efe9059069c316a06707bb793b5ce4166fbc40f43682",
       "title": "Aktuelle SwissMetNet-Beobachtungen"
     },
     "meteo_forecast": {
-      "hash": "sha256:ebe183afec684e9a17b25209fa9e08fb5322356e901277ff5321a300d90858b9",
+      "hash": "sha256:5e4472a5b054631eae0b9896acec2e83abe3d7475ebabba6b51a8d9a879034a4",
       "title": "Wetterprognose (MeteoSwiss ICON-Modell)"
     },
     "meteo_school_check": {
-      "hash": "sha256:1444d94b951a18ab6171e344ea36238d315d2f0c0bf7cd14a172a26ee02f075d",
+      "hash": "sha256:512849cd3ccbf3289f942f50d356cd4515b4840d82419416927c57bd6c8609d9",
       "title": "Wettereignung für Schulveranstaltungen prüfen"
     },
     "meteo_climate_normals": {
-      "hash": "sha256:624a68e55556b3bdb68267251740681c847129c85799e28372fb4c57a637040f",
+      "hash": "sha256:7150b86d7dd01637d54eef82939eec9e5b02cda4d6b37741a682cf1f053fe96f",
       "title": "Klimanormwerte einer SMN-Station"
     },
     "meteo_warnings": {
-      "hash": "sha256:9986bd86686d9de9a90cac78e052715753866bc5faa8290627db1dcb3fd02046",
+      "hash": "sha256:161016b87897fb9c8617356a41bcf6e92a4d0b14e6fdcbca9762e4b43ec54eba",
       "title": "Aktuelle MeteoSwiss-Wetterwarnungen"
     }
   }

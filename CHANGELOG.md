@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Live-Wetterwarnungen (`meteo_warnings`)
+
+- **`meteo_warnings` liefert jetzt echte, aktive Warnungen** statt nur eines
+  Linkstacks. Live-Quelle ist das öffentliche MeteoSwiss-App-Backend
+  (`app-prod-ws.meteoswiss-app.ch/v1/plzDetail`) — öffentlich und ohne Auth.
+  Aggregierte Wetterwarnungen (Sturm, Gewitter, Hitze, Waldbrand, Frost,
+  Schnee, …) mit Typ- und Stufen-Label, betroffener Warnregion, Gültig-ab und
+  offiziellem Handlungslink; zusätzlich eine `Vorausschau`-Sektion für noch
+  nicht aktive Warnungen.
+- **Drei Abfrage-Granularitäten:** `plz="8001"` (ortsgenau), `canton="TI"`
+  (Kanton via Hauptort-PLZ) oder ohne Filter → landesweite Aggregation über je
+  eine Kantonshauptort-PLZ pro Kanton (26 Abfragen, dedupliziert, nach Typ
+  gruppiert). Einzelne fehlgeschlagene PLZ-Abfragen degradieren den Aufruf
+  nicht (Teilergebnis + Hinweis).
+- **Mehrsprachige Warntexte** via neuen Parameter `language` (`de`/`fr`/`it`/
+  `en`, Default `de`) — wird als `Accept-Language` an die App-API durchgereicht.
+- **Neuer Egress-Host** `app-prod-ws.meteoswiss-app.ch` in der Allow-List.
+  `MCP_WARNINGS_API_URL` überschreibt die App-Quelle weiterhin (Vorbereitung
+  auf die künftige offizielle OGD-Warnings-REST-API).
+- `warnType`-Mapping (7=Hitze, 10=Waldbrand gegen die natural-hazards.ch-Slugs
+  verifiziert) mit Slug-Fallback für unbekannte Codes; Warnstufen 1–5.
+
+### Changed
+
+- **`meteo_warnings`-Tool-Definition erweitert** (neue Parameter `plz`,
+  `language`; aktualisierte Description) → `tool-hashes.json` neu generiert
+  (Rug-Pull-Signal, SEC-022). Für Clients nicht breaking: bestehende Aufrufe
+  ohne `plz`/`language` funktionieren unverändert.
+
+### Tests
+
+- 12 neue Tests für die App-API-Warnungen (respx-gemockt, kein Netzwerk):
+  PLZ-Detailansicht, landesweite Aggregation, JSON-Schema, unbekannter Kanton,
+  Fehler-Degradation, PLZ-/Sprach-Validierung sowie Unit-Tests für
+  `_warn_type_label`, `_epoch_millis_to_iso`, `_dedupe_warnings` und die
+  Egress-Allow-List.
+
 ## [0.3.0] - 2026-05-21
 
 Phase-2-Release: TTL-Caching aller Upstream-Calls, erweiterbare Klimanormwerte (19 Stationen statt 5), strukturierter Warnings-API-Hook. Kein Breaking Change gegenüber 0.2.0 — alle neuen Features sind opt-in via ENV.
