@@ -355,10 +355,16 @@ PYTHONPATH=src npx @modelcontextprotocol/inspector python -m meteoswiss_mcp.serv
 
 ---
 
-## Mitwirken & Sicherheit
+## Mitwirken
 
-- [Beitragsrichtlinien](CONTRIBUTING.de.md) ([English](CONTRIBUTING.md))
-- [Sicherheitsrichtlinie](SECURITY.de.md) ([English](SECURITY.md))
+Siehe die [Beitragsrichtlinien](CONTRIBUTING.de.md) ([English](CONTRIBUTING.md)).
+
+---
+
+## Sicherheit
+
+Siehe die [Sicherheitsrichtlinie](SECURITY.de.md) ([English](SECURITY.md)) für die
+Sicherheitslage und die Meldung von Schwachstellen.
 
 ---
 
@@ -369,6 +375,12 @@ MIT License – siehe [LICENSE](LICENSE).
 Quelldaten: MeteoSwiss Open Government Data (CC BY 4.0).
 Bei Nutzung der Daten: **Quelle: MeteoSchweiz** angeben.
 
+
+---
+
+## Autor
+
+**Hayal Oezkan** · [github.com/malkreide](https://github.com/malkreide)
 ---
 
 ## Verwandte Server
