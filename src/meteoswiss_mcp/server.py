@@ -46,7 +46,7 @@ from urllib.parse import urlparse
 
 import httpx
 import structlog
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ---------------------------------------------------------------------------
@@ -818,7 +818,7 @@ def _build_http_client() -> httpx.AsyncClient:
 
 
 @asynccontextmanager
-async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
+async def app_lifespan(server: MCPServer) -> AsyncIterator[AppContext]:
     """Erstellt einen wiederverwendeten httpx.AsyncClient für die Server-Lebenszeit.
 
     Der Client führt vor jedem Request `_validate_request_hook` aus — auch bei
@@ -835,7 +835,7 @@ async def _http_client(ctx: Context | None) -> AsyncIterator[httpx.AsyncClient]:
     """Liefert den Lifespan-Client wenn `ctx` gesetzt ist, sonst einen transienten.
 
     Der transiente Pfad existiert ausschliesslich für direkte Unit-Tests, die
-    Tools ohne FastMCP-Runtime aufrufen.
+    Tools ohne MCPServer-Runtime aufrufen.
     """
     if ctx is not None:
         try:
@@ -869,10 +869,9 @@ def _sanitize_error(exc: BaseException) -> str:
 # was für read-only-Server wie diesen kein Datenverlust-Problem ist.
 _STATELESS_HTTP = os.environ.get("MCP_STATELESS_HTTP", "0") == "1"
 
-mcp = FastMCP(
+mcp = MCPServer(
     "meteoswiss_mcp",
     lifespan=app_lifespan,
-    stateless_http=_STATELESS_HTTP,
     instructions="""
 MCP-Server für Schweizer Wetter- und Klimadaten von MeteoSwiss.
 Bietet Zugriff auf SwissMetNet-Beobachtungen (10-Minuten-Intervall),
@@ -2737,7 +2736,9 @@ def _build_http_app():
     from starlette.middleware.cors import CORSMiddleware
     from starlette.responses import JSONResponse
 
-    app = mcp.streamable_http_app()
+    # mcp 2.x: stateless mode is a property of the app being built, not a
+    # constructor argument.
+    app = mcp.streamable_http_app(stateless_http=_STATELESS_HTTP)
 
     # CORS (SDK-004): Mcp-Session-Id muss browser-clients exposed werden.
     origins = _parse_origins(os.environ.get("MCP_ALLOWED_ORIGINS", ""))

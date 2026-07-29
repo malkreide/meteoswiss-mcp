@@ -994,7 +994,10 @@ def test_stateless_default_is_false():
     # Beim Modul-Import wurde der Wert eingefroren — der Test prüft die
     # Default-Semantik, nicht die Laufzeit-Konfigurierbarkeit.
     assert _STATELESS_HTTP is False
-    assert mcp.settings.stateless_http is False
+    # mcp 2.x: MCPServer.settings no longer carries stateless_http; the value
+    # is frozen into _STATELESS_HTTP at import and passed to
+    # streamable_http_app() when the app is built.
+    assert _STATELESS_HTTP is False
 
 
 # ---------------------------------------------------------------------------

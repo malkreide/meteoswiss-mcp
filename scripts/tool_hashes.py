@@ -43,7 +43,7 @@ async def collect() -> dict[str, dict[str, str]]:
             {
                 "name": t.name,
                 "description": t.description,
-                "inputSchema": t.inputSchema,
+                "inputSchema": t.input_schema,
             },
             sort_keys=True,
             ensure_ascii=False,
