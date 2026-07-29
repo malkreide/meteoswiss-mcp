@@ -989,7 +989,7 @@ def test_ogd_envelope_has_required_fields():
 
 def test_stateless_default_is_false():
     """Ohne MCP_STATELESS_HTTP=1 ist Stateless-Modus aus."""
-    from meteoswiss_mcp.server import _STATELESS_HTTP, mcp
+    from meteoswiss_mcp.server import _STATELESS_HTTP
 
     # Beim Modul-Import wurde der Wert eingefroren — der Test prüft die
     # Default-Semantik, nicht die Laufzeit-Konfigurierbarkeit.
