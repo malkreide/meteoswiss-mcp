@@ -989,12 +989,15 @@ def test_ogd_envelope_has_required_fields():
 
 def test_stateless_default_is_false():
     """Ohne MCP_STATELESS_HTTP=1 ist Stateless-Modus aus."""
-    from meteoswiss_mcp.server import _STATELESS_HTTP, mcp
+    from meteoswiss_mcp.server import _STATELESS_HTTP
 
     # Beim Modul-Import wurde der Wert eingefroren — der Test prüft die
     # Default-Semantik, nicht die Laufzeit-Konfigurierbarkeit.
     assert _STATELESS_HTTP is False
-    assert mcp.settings.stateless_http is False
+    # mcp 2.x: MCPServer.settings no longer carries stateless_http; the value
+    # is frozen into _STATELESS_HTTP at import and passed to
+    # streamable_http_app() when the app is built.
+    assert _STATELESS_HTTP is False
 
 
 # ---------------------------------------------------------------------------
