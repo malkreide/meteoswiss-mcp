@@ -582,6 +582,23 @@ class TestTransportSettings:
         assert port == 7000
 
 
+class TestServerVersion:
+    """`serverInfo.version` im initialize-Handshake darf nicht leer sein."""
+
+    def test_version_matches_installed_distribution(self):
+        from importlib.metadata import version as pkg_version
+
+        import meteoswiss_mcp.server as srv
+
+        assert srv.__version__ == pkg_version("meteoswiss-mcp")
+
+    def test_server_reports_a_version(self):
+        import meteoswiss_mcp.server as srv
+
+        assert srv.mcp.version
+        assert srv.mcp.version == srv.__version__
+
+
 # ---------------------------------------------------------------------------
 # Structured Logging (PR-3: OBS-001, OBS-003, OBS-004)
 # ---------------------------------------------------------------------------

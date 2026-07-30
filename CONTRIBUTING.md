@@ -34,7 +34,7 @@ Please include:
 - [Ruff](https://github.com/astral-sh/ruff) for linting and formatting
 - Type hints required for all public functions
 - Tests required for new tools (`tests/test_server.py`)
-- Follow the existing FastMCP / Pydantic v2 patterns in `server.py`
+- Follow the existing `MCPServer` / Pydantic v2 patterns in `server.py`
 
 ---
 
