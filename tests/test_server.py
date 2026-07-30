@@ -1334,6 +1334,156 @@ async def test_geocode_none_raises():
 
 
 # ---------------------------------------------------------------------------
+# Gekürzte Geocoding-Anfragen (Issue #37)
+# ---------------------------------------------------------------------------
+
+
+class TestGeocodeFallbackCandidates:
+    def test_single_word_needs_no_shortening(self):
+        from meteoswiss_mcp.server import _geocode_fallback_candidates
+
+        assert _geocode_fallback_candidates("Zürich") == []
+
+    def test_walks_from_specific_to_general(self):
+        from meteoswiss_mcp.server import _geocode_fallback_candidates
+
+        assert _geocode_fallback_candidates("Schulhaus Leutschenbach Zürich") == [
+            ("Schulhaus", True),
+            ("Leutschenbach Zürich", False),
+            ("Leutschenbach", True),
+            ("Zürich", False),
+        ]
+
+    def test_final_fallback_is_the_city_without_name_check(self):
+        """Sonst scheitert «Zürich» an der Umlaut-Variante `Zurich`."""
+        from meteoswiss_mcp.server import _geocode_fallback_candidates
+
+        last_candidate, needs_name_match = _geocode_fallback_candidates(
+            "Sportanlage Heerenschürli Zürich"
+        )[-1]
+        assert last_candidate == "Zürich"
+        assert needs_name_match is False
+
+
+class TestNamesMatch:
+    def test_accepts_the_real_place(self):
+        from meteoswiss_mcp.server import _names_match
+
+        assert _names_match("Leutschenbach", "Leutschenbach")
+        assert _names_match("leutschenbach", "Leutschenbach")
+
+    def test_rejects_a_different_place_sharing_the_word(self):
+        from meteoswiss_mcp.server import _names_match
+
+        assert not _names_match("Schulhaus", "Dübendorf / Schulhaus Wil")
+
+
+@pytest.mark.asyncio
+async def test_geocode_recovers_the_specific_locality():
+    """«Schulhaus Leutschenbach Zürich» → Leutschenbach, nicht Dübendorf."""
+    import respx
+
+    from meteoswiss_mcp.server import _build_http_client, _geocode
+
+    leutschenbach = {
+        "name": "Leutschenbach",
+        "latitude": 47.41,
+        "longitude": 8.55,
+        "admin1": "ZH",
+        "country_code": "CH",
+    }
+    # Reihenfolge der echten API: voll (de), voll (fuzzy), "Schulhaus",
+    # "Leutschenbach Zürich", "Leutschenbach".
+    responses = [
+        httpx.Response(200, json={"results": []}),
+        httpx.Response(200, json={"results": []}),
+        httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "name": "Dübendorf / Schulhaus Wil",
+                        "latitude": 47.40,
+                        "longitude": 8.62,
+                        "country_code": "CH",
+                    }
+                ]
+            },
+        ),
+        httpx.Response(200, json={"results": []}),
+        httpx.Response(200, json={"results": [leutschenbach]}),
+    ]
+
+    with respx.mock(assert_all_called=False) as r:
+        r.get("https://geocoding-api.open-meteo.com/v1/search").side_effect = responses
+        async with _build_http_client() as client:
+            lat, lon, display, match = await _geocode(
+                client, "Schulhaus Leutschenbach Zürich"
+            )
+
+    assert (lat, lon) == (47.41, 8.55)  # nicht Dübendorf (47.40, 8.62)
+    assert "Leutschenbach" in display
+    assert match == "shortened"
+
+
+@pytest.mark.asyncio
+async def test_geocode_generalises_to_the_city_when_locality_is_unknown():
+    """«Sportanlage Heerenschürli Zürich»: nur die Stadt ist auflösbar."""
+    import respx
+
+    from meteoswiss_mcp.server import _build_http_client, _geocode
+
+    zurich = {
+        "name": "Zurich",
+        "latitude": 47.3769,
+        "longitude": 8.5417,
+        "admin1": "ZH",
+        "country_code": "CH",
+    }
+    # Alles leer bis zum Schluss-Fallback "Zürich".
+    responses = [httpx.Response(200, json={"results": []}) for _ in range(5)]
+    responses.append(httpx.Response(200, json={"results": [zurich]}))
+
+    with respx.mock(assert_all_called=False) as r:
+        r.get("https://geocoding-api.open-meteo.com/v1/search").side_effect = responses
+        async with _build_http_client() as client:
+            lat, lon, _display, match = await _geocode(
+                client, "Sportanlage Heerenschürli Zürich"
+            )
+
+    assert (lat, lon) == (47.3769, 8.5417)
+    assert match == "shortened"
+
+
+@pytest.mark.asyncio
+async def test_geocode_does_not_shorten_when_the_full_string_matches():
+    """Ein Volltreffer darf keine zusätzlichen Requests auslösen."""
+    import respx
+
+    from meteoswiss_mcp.server import _build_http_client, _geocode
+
+    with respx.mock(assert_all_called=False) as r:
+        route = r.get("https://geocoding-api.open-meteo.com/v1/search").respond(
+            200,
+            json={
+                "results": [
+                    {
+                        "name": "Bern",
+                        "latitude": 46.95,
+                        "longitude": 7.45,
+                        "country_code": "CH",
+                    }
+                ]
+            },
+        )
+        async with _build_http_client() as client:
+            _lat, _lon, _display, match = await _geocode(client, "Bern Schweiz")
+
+    assert match == "exact"
+    assert route.call_count == 1
+
+
+# ---------------------------------------------------------------------------
 # OGDResponse-Envelope (PR-6: CH-004 / SDK-002)
 # ---------------------------------------------------------------------------
 
@@ -1953,11 +2103,14 @@ async def test_live_geocode_leutschenbach():
     from meteoswiss_mcp.server import _build_http_client, _geocode
 
     async with _build_http_client() as client:
-        lat, lon, name, match = await _geocode(client, "Leutschenbach Zürich")
+        lat, lon, name, match = await _geocode(client, "Schulhaus Leutschenbach Zürich")
     # Oerlikon-Bereich
     assert 47.3 < lat < 47.5
     assert 8.4 < lon < 8.7
-    assert match in ("exact", "fuzzy")
+    assert match in ("exact", "fuzzy", "shortened")
+    # Die Gattungswort-Falle: «Schulhaus» allein trifft Dübendorf (8.62),
+    # eine andere Gemeinde. Der Ortsname muss die Auflösung tragen.
+    assert "Leutschenbach" in name
 
 
 @pytest.mark.live
