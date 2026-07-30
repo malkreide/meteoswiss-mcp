@@ -259,7 +259,9 @@ SMN_PARAMS: dict[str, dict[str, str]] = {
     "fu3010z0": {"name": "Windböe", "unit": "m/s"},
     "ure200s0": {"name": "Relative Luftfeuchte", "unit": "%"},
     "prestas0": {"name": "Luftdruck (Stationsdruckniveau)", "unit": "hPa"},
-    "prestah0": {"name": "Luftdruck (reduziert auf Meeresniveau)", "unit": "hPa"},
+    # QNH statt des früheren `prestah0` — letzteres führt die OGD-CSV nicht,
+    # die Zeile blieb also immer leer.
+    "pp0qnhs0": {"name": "Luftdruck (QNH, auf Meeresniveau)", "unit": "hPa"},
 }
 
 # Schwellenwerte für Schulaktivitäten im Freien
@@ -1270,6 +1272,38 @@ async def _fetch_open_meteo_forecast(
     )
 
 
+def _smn_stac_item_url(station: str) -> str:
+    """URL des STAC-Items einer SMN-Station.
+
+    Die Item-ID ist der nackte Stationscode in Kleinschreibung (`klo`) — *nicht*
+    die Collection-ID als Präfix (`ch.meteoschweiz.ogd-smn-klo`) und nicht in
+    Grossschreibung; beide Varianten quittiert die API mit 404. Die URL wird an
+    drei Stellen gebraucht (Fetch, Fehlermeldung, JSON-Provenance); genau diese
+    Verdreifachung hat den Fehler überleben lassen, deshalb nur noch hier.
+    """
+    return f"{STAC_BASE}/collections/{SMN_COLLECTION}/items/{station.lower()}"
+
+
+def _select_smn_now_asset(assets: dict[str, Any]) -> str | None:
+    """Wählt aus den STAC-Assets die CSV mit den aktuellsten 10-Minuten-Werten.
+
+    Die Dateinamen tragen die Granularität im Namen, nicht im Pfad:
+    `ogd-smn_klo_t_now.csv` (`t` = 10 min, `now` = seit Mitternacht). Ein
+    Verzeichnis `/now/` gibt es nicht.
+
+    Reihenfolge: `t_now` (seit Mitternacht), sonst `t_recent` (laufendes Jahr).
+    Bewusst *ohne* Fallback auf ein beliebiges CSV — die Assets enthalten auch
+    Tages-, Monats- und Jahreswerte bis 1980 zurück, und die als «aktuelle
+    Beobachtung» auszugeben wäre schlimmer als ein sauberer Fehler.
+    """
+    for suffix in ("_t_now.csv", "_t_recent.csv"):
+        for asset in assets.values():
+            href = asset.get("href", "")
+            if href.endswith(suffix):
+                return href
+    return None
+
+
 async def _fetch_stac_now_csv(
     client: httpx.AsyncClient, station: str
 ) -> list[dict[str, str]]:
@@ -1285,36 +1319,14 @@ async def _fetch_stac_now_csv(
 
     async def _do_fetch():
         # STAC Item für die Station abrufen
-        stac_item_url = (
-            f"{STAC_BASE}/collections/{SMN_COLLECTION}/items/"
-            f"ch.meteoschweiz.ogd-smn-{station_lower}"
-        )
-        resp = await client.get(stac_item_url)
+        resp = await client.get(_smn_stac_item_url(station_lower))
         resp.raise_for_status()
         item = resp.json()
 
-        # Asset-URL für die "now"-Datei finden (10-Minuten-Werte, neueste)
-        assets = item.get("assets", {})
-        now_url: str | None = None
-
-        # Suche nach dem "now"-Asset (10-Minuten-Granularität)
-        for _key, asset in assets.items():
-            href = asset.get("href", "")
-            if "/now/" in href and "_t_" in href and href.endswith(".csv"):
-                now_url = href
-                break
-
-        # Fallback: erstes CSV-Asset nehmen
-        if not now_url:
-            for _key, asset in assets.items():
-                href = asset.get("href", "")
-                if href.endswith(".csv"):
-                    now_url = href
-                    break
-
+        now_url = _select_smn_now_asset(item.get("assets", {}))
         if not now_url:
             raise ValueError(
-                f"Kein CSV-Asset für Station '{station}' in STAC gefunden."
+                f"Kein 10-Minuten-CSV-Asset für Station '{station}' in STAC gefunden."
             )
 
         resp_csv = await client.get(now_url)
@@ -1339,7 +1351,15 @@ def _format_smn_rows(rows: list[dict[str, str]], station_info: dict[str, Any]) -
         return "*Keine Daten verfügbar.*"
 
     latest = rows[-1]
-    timestamp = latest.get("time", latest.get("Date", latest.get("datum", "–")))
+    # `reference_timestamp` ist die Spalte, die die OGD-CSV tatsächlich führt.
+    # Die übrigen Namen bleiben als Fallback für abweichende Exporte stehen.
+    timestamp = (
+        latest.get("reference_timestamp")
+        or latest.get("time")
+        or latest.get("Date")
+        or latest.get("datum")
+        or "–"
+    )
 
     lines = [
         f"**Zeitstempel (UTC):** {timestamp}\n",
@@ -1768,10 +1788,7 @@ async def meteo_current(params: CurrentInput, ctx: Context | None = None) -> str
         )
         if ctx is not None:
             await ctx.warning(f"STAC-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
-        stac_url = (
-            f"https://data.geo.admin.ch/api/stac/v1/collections/{SMN_COLLECTION}/items/"
-            f"ch.meteoschweiz.ogd-smn-{code.lower()}"
-        )
+        stac_url = _smn_stac_item_url(code)
         return (
             f"⚠️ Live-Daten für Station {code} nicht abrufbar: {_sanitize_error(exc)}\n\n"
             f"**Station:** {station_info['name']} ({code})\n"
@@ -1794,10 +1811,7 @@ async def meteo_current(params: CurrentInput, ctx: Context | None = None) -> str
                     "beobachtungen": rows,
                 },
                 source="MeteoSwiss SwissMetNet via BGDI STAC API",
-                data_source_url=(
-                    f"https://data.geo.admin.ch/api/stac/v1/collections/{SMN_COLLECTION}/items/"
-                    f"ch.meteoschweiz.ogd-smn-{code.lower()}"
-                ),
+                data_source_url=_smn_stac_item_url(code),
             ),
             ensure_ascii=False,
             indent=2,

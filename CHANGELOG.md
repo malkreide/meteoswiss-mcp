@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Behoben
+
+- **`meteo_current` lieferte für jede Station 404**
+  ([#33](https://github.com/malkreide/meteoswiss-mcp/issues/33)). Die STAC-Item-ID
+  ist der nackte Stationscode in Kleinschreibung (`…/items/klo`); der Server
+  stellte ihm die Collection-ID voran (`…/items/ch.meteoschweiz.ogd-smn-klo`).
+  Live gegen die BGDI-API verifiziert: `/items/klo` → 200, die Präfix-Variante
+  und die Grossschreibung → je 404. Die URL wurde an drei Stellen dupliziert
+  (Fetch, Fehlermeldung, JSON-Provenance) — jetzt einmal in
+  `_smn_stac_item_url()`.
+
+  Beim Beheben kamen drei weitere Fehler zum Vorschein, die der 404 verdeckt
+  hatte — sie hätten nach dem URL-Fix plausibel aussehende, aber falsche Daten
+  geliefert:
+
+  - **Die Asset-Auswahl konnte nie greifen.** Gesucht wurde nach `/now/` im
+    Pfad, doch die Granularität steckt im Dateinamen
+    (`ogd-smn_klo_t_now.csv`); ein Verzeichnis `/now/` existiert nicht. Der
+    Fallback nahm daraufhin das *erste* CSV im Item — `d_historical`, also
+    Tageswerte ab 1980, ausgegeben als «aktuelle Beobachtung». Neu wird gezielt
+    `_t_now` gewählt, ersatzweise `_t_recent`; gibt es beides nicht, ist das ein
+    Fehler statt eines stillen Griffs ins Archiv.
+  - **Der Zeitstempel war immer `–`.** Gelesen wurde `time`/`Date`/`datum`, die
+    OGD-CSV führt aber `reference_timestamp`.
+  - **Die Zeile «Luftdruck (reduziert auf Meeresniveau)» blieb immer leer.**
+    `prestah0` gibt es in der CSV nicht; der QNH-Wert heisst `pp0qnhs0`.
+
+- **Der Live-Test für `meteo_current` konnte den Fehler nicht finden.** Er prüfte
+  `"KLO" in result or "Zürich" in result` — beides steht auch in der
+  Fallback-Fehlermeldung, der Test war also gegen genau diesen Ausfall blind. Er
+  verlangt jetzt echte Messwerte.
+
 ## [0.5.0] - 2026-07-30
 
 Reparatur-Release für einen kaputten PyPI-Stand. `mcp` 2.0.0 erschien am
