@@ -2931,7 +2931,50 @@ def _parse_origins(raw: str) -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 
-def _build_http_app():
+def build_transport_security(host: str, port: int):
+    """Host/Origin-Allow-List für den Streamable-HTTP-Transport (SEC-005).
+
+    Unter mcp 2.x ein per-App-Kwarg — und ihn wegzulassen ist nicht neutral: das
+    SDK leitet aus dem ``host``-Argument der App einen Default ab und aktiviert
+    bei loopback-artigem Wert automatisch ``127.0.0.1:*``. Da ``host`` selbst auf
+    ``127.0.0.1`` defaultet, traf das jeden Start mit ``MCP_HOST=0.0.0.0`` — den
+    Fall, den der Docstring des Einstiegspunkts ausdrücklich fürs
+    Cloud-Deployment vorsieht. Vor der Migration auf 2.x ging ``host`` an den
+    ``FastMCP``-Konstruktor, wo dieselbe Logik den echten Bind sah und den Schutz
+    korrekt ausliess.
+
+    Rückgabe ``None``, wenn keine Allow-List ableitbar ist — Nicht-Loopback-Bind
+    ohne ``MCP_ALLOWED_HOSTS``. Eine geratene Liste reproduziert genau dieses
+    421, der Aufrufer warnt stattdessen.
+    """
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    loopback = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+    allowed = _parse_origins(os.environ.get("MCP_ALLOWED_HOSTS", ""))
+    if allowed:
+        # Loopback bleibt für Health-Probes und lokales Debugging erreichbar.
+        hosts = set(allowed) | loopback
+    elif host in ("127.0.0.1", "localhost", "::1"):
+        hosts = loopback | {f"{host}:{port}"}
+    else:
+        return None
+
+    # Die per MCP_ALLOWED_ORIGINS konfigurierten CORS-Origins müssen auch die
+    # Transport-Prüfung passieren, sonst weist der Server genau die
+    # Browser-Clients ab, die CORS erlaubt. ``*`` ist nicht ausdrückbar
+    # (Origins werden literal verglichen) und wird nicht kopiert.
+    origins = {
+        o for o in _parse_origins(os.environ.get("MCP_ALLOWED_ORIGINS", "")) if o != "*"
+    }
+    origins |= {f"http://{h}" for h in hosts}
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=sorted(hosts),
+        allowed_origins=sorted(origins),
+    )
+
+
+def _build_http_app(host: str = "127.0.0.1", port: int = 8000):
     """Baut den Streamable-HTTP-ASGI-Stack: MCP-App + optionale CORS + optionale Auth.
 
     Middleware-Order (von aussen nach innen):
@@ -2949,9 +2992,22 @@ def _build_http_app():
     from starlette.middleware.cors import CORSMiddleware
     from starlette.responses import JSONResponse
 
-    # mcp 2.x: stateless mode is a property of the app being built, not a
-    # constructor argument.
-    app = mcp.streamable_http_app(stateless_http=_STATELESS_HTTP)
+    # mcp 2.x: stateless mode *and* the bind address are properties of the app
+    # being built, not constructor arguments. `host` is not cosmetic here — the
+    # SDK derives its Host allow-list from it, so omitting it made a
+    # MCP_HOST=0.0.0.0 deployment answer every request with HTTP 421.
+    security = build_transport_security(host, port)
+    if security is None:
+        logger.warning(
+            "dns_rebinding_protection_off",
+            host=host,
+            hint="Bind ist nicht Loopback und MCP_ALLOWED_HOSTS ist leer — setze "
+            "die Variable auf die Hostnamen, unter denen dieser Server erreichbar "
+            "ist, damit Host und Origin geprüft werden",
+        )
+    app = mcp.streamable_http_app(
+        stateless_http=_STATELESS_HTTP, transport_security=security, host=host
+    )
 
     # CORS (SDK-004): Mcp-Session-Id muss browser-clients exposed werden.
     origins = _parse_origins(os.environ.get("MCP_ALLOWED_ORIGINS", ""))
@@ -3022,7 +3078,7 @@ def main() -> None:
         # davorhängen können. uvicorn übernimmt dann das Serving.
         import uvicorn
 
-        app = _build_http_app()
+        app = _build_http_app(host, port)
         uvicorn.run(app, host=host, port=port, log_config=None)
     else:
         mcp.run()
