@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name        = "meteoswiss-mcp"
-version     = "0.5.0"
+version     = "0.6.0"
 description = "MCP Server for Swiss weather and climate data — MeteoSwiss SwissMetNet, ICON forecasts, climate normals"
 readme      = "README.md"
 license     = { file = "LICENSE" }
