@@ -66,7 +66,7 @@ Alle Tools tragen explizite [MCP-Annotations](https://modelcontextprotocol.io/sp
 | Aspekt | Wert |
 |---|---|
 | Getestete Spec-Versionen | `2024-11-05`, `2025-03-26`, `2025-06-18` (via `mcp[cli]` SDK) |
-| FastMCP-SDK-Version | siehe `pyproject.toml` → `mcp[cli]>=1.0.0` |
+| MCP-SDK-Version | siehe `pyproject.toml` → `mcp[cli]>=2.0.0,<3` (die `MCPServer`-API aus `mcp.server.mcpserver`) |
 | Update-Policy | Dependabot bewacht `mcp[cli]`; Spec-Bumps werden im CHANGELOG mit «Tool Definition Changes»-Marker dokumentiert |
 
 → Vollständige Roadmap & Update-Strategie: [`docs/roadmap.md`](docs/roadmap.md)
@@ -114,7 +114,7 @@ Konfiguration via ENV-Variablen (CLI-Flags `--http` / `--port N` funktionieren w
 | `MCP_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` — strukturierte JSON-Logs auf stderr |
 | `MCP_ALLOWED_ORIGINS` | _unset_ | Komma-separierte Liste erlaubter Origins für CORS. Leer = CORS deaktiviert (same-origin only). `Mcp-Session-Id` wird automatisch exposed. |
 | `MCP_API_KEY` | _unset_ | Wenn gesetzt: alle Requests ausser `/health` brauchen `X-API-Key: <key>` oder `Authorization: Bearer <key>`. Constant-time-Vergleich. |
-| `MCP_STATELESS_HTTP` | `0` | `1` aktiviert FastMCP-Stateless-Mode → jeder HTTP-Request öffnet eine neue Session. Voraussetzung für Multi-Replica-Deploys ohne Sticky-Sessions (SCALE-002/003). |
+| `MCP_STATELESS_HTTP` | `0` | `1` aktiviert den Stateless-Mode des SDK → jeder HTTP-Request öffnet eine neue Session. Voraussetzung für Multi-Replica-Deploys ohne Sticky-Sessions (SCALE-002/003). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _unset_ | Wenn gesetzt + `pip install meteoswiss-mcp[otel]`: OpenTelemetry-Spans pro Tool-Call + automatische httpx-Instrumentierung gehen als OTLP-HTTP an den Collector. |
 | `OTEL_SERVICE_NAME` | `meteoswiss_mcp` | Service-Name in den OTel-Resources |
 | `MCP_CACHE_ENABLED` | `1` | `0` schaltet den TTL-Cache komplett aus (z.B. für End-to-End-Tests) |
@@ -227,7 +227,7 @@ Claude Desktop / KI-Agent
         │
         │ MCP (stdio / Streamable HTTP)
         ▼
-meteoswiss-mcp (FastMCP)
+meteoswiss-mcp (MCPServer)
         │
         ├── meteo_stations ──────────────── [eingebettet: ~20 SMN-Stationen]
         │

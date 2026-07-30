@@ -66,7 +66,7 @@ All tools carry explicit [MCP annotations](https://modelcontextprotocol.io/speci
 | Aspect | Value |
 |---|---|
 | Tested spec versions | `2024-11-05`, `2025-03-26`, `2025-06-18` (via the `mcp[cli]` SDK) |
-| FastMCP SDK version | see `pyproject.toml` → `mcp[cli]>=1.0.0` |
+| MCP SDK version | see `pyproject.toml` → `mcp[cli]>=2.0.0,<3` (the `MCPServer` API from `mcp.server.mcpserver`) |
 | Update policy | Dependabot watches `mcp[cli]`; spec bumps are documented in the CHANGELOG with a "Tool Definition Changes" marker |
 
 → Full roadmap & update strategy: [`docs/roadmap.md`](docs/roadmap.md)
@@ -114,7 +114,7 @@ Configuration via ENV variables (the CLI flags `--http` / `--port N` still work 
 | `MCP_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` — structured JSON logs on stderr |
 | `MCP_ALLOWED_ORIGINS` | _unset_ | Comma-separated list of allowed origins for CORS. Empty = CORS disabled (same-origin only). `Mcp-Session-Id` is exposed automatically. |
 | `MCP_API_KEY` | _unset_ | If set: every request except `/health` requires `X-API-Key: <key>` or `Authorization: Bearer <key>`. Constant-time comparison. |
-| `MCP_STATELESS_HTTP` | `0` | `1` enables FastMCP stateless mode → each HTTP request opens a new session. Prerequisite for multi-replica deploys without sticky sessions (SCALE-002/003). |
+| `MCP_STATELESS_HTTP` | `0` | `1` enables the SDK's stateless mode → each HTTP request opens a new session. Prerequisite for multi-replica deploys without sticky sessions (SCALE-002/003). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _unset_ | If set + `pip install meteoswiss-mcp[otel]`: OpenTelemetry spans per tool call + automatic httpx instrumentation are sent as OTLP-HTTP to the collector. |
 | `OTEL_SERVICE_NAME` | `meteoswiss_mcp` | Service name in the OTel resources |
 | `MCP_CACHE_ENABLED` | `1` | `0` disables the TTL cache entirely (e.g. for end-to-end tests) |
@@ -227,7 +227,7 @@ Claude Desktop / AI agent
         │
         │ MCP (stdio / Streamable HTTP)
         ▼
-meteoswiss-mcp (FastMCP)
+meteoswiss-mcp (MCPServer)
         │
         ├── meteo_stations ──────────────── [embedded: ~20 SMN stations]
         │

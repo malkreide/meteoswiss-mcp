@@ -7,15 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-30
+
+Reparatur-Release für einen kaputten PyPI-Stand. `mcp` 2.0.0 erschien am
+28.07.2026 und entfernte `mcp.server.fastmcp` — genau das Modul, das v0.4.0
+importierte. Weil v0.4.0 keine Obergrenze auf `mcp` hatte, zog jede frische
+Installation aus PyPI die 2.0.0 und scheiterte sofort beim Import. Das
+betrifft `uvx meteoswiss-mcp` genauso wie `pip install meteoswiss-mcp`
+([#31](https://github.com/malkreide/meteoswiss-mcp/issues/31)).
+
+Der Code auf `main` war bereits migriert; dieses Release bringt die Korrektur
+zu den Nutzenden. Für Clients ist nichts breaking — die 6 Tools, ihre Schemata
+und das Wire-Format sind unverändert (`tool-hashes.json` bleibt gleich).
+
 ### Behoben
 
-- **`mcp` auf `<2` begrenzt.** `mcp` 2.0.0, veröffentlicht am 28.07.2026, hat
-  `mcp.server.fastmcp` entfernt — genau das Modul, das dieser Server importiert.
-  Mit dem bisherigen offenen `>=1.28.1` wählte jede frische Auflösung 2.0.0 und
-  scheiterte beim Import mit `ModuleNotFoundError`, in der CI ebenso wie bei
-  jedem `pip install`. In beide Richtungen verifiziert: 2.0.0 scheitert, `<2`
-  löst auf 1.29.0 auf und importiert sauber. Die Migration auf die 2.x-API
-  (`mcp.server.mcpserver`) bleibt eine eigene, bewusste Aufgabe.
+- **Frische Installationen starten wieder.** Der `ModuleNotFoundError: No
+  module named 'mcp.server.fastmcp'` beim Start von `uvx meteoswiss-mcp` ist
+  weg. Ursache war nicht der Code, sondern die Release-Lücke: der Fix lag seit
+  #29/#30 auf `main`, aber PyPI führte weiterhin v0.4.0.
+
+### Changed
+
+- **Migration auf das `mcp`-Python-SDK 2.x** (#30). Der Server-Import wechselt
+  von `mcp.server.fastmcp` auf `mcp.server.mcpserver`, `FastMCP` heisst neu
+  `MCPServer`. Ohne Kompatibilitäts-Shim im SDK ist der Boden hart: der Pin
+  lautet jetzt `mcp[cli]>=2.0.0,<3` statt `>=1.28.1`. Weitere Anpassungen im
+  SDK, die mitgezogen werden mussten:
+  - `mcp_types` snake_cased sämtliche Modell-Attribute (`inputSchema` →
+    `input_schema`, `isError` → `is_error`, …). Das sind Pydantic-Aliase, das
+    Wire-Format bleibt identisch.
+  - `McpError` heisst `MCPError` und nimmt `(code, message, data=None)` direkt
+    entgegen statt eine `ErrorData`-Instanz zu umschliessen.
+  - `call_tool()` liefert ein `CallToolResult` statt des 1.x-Tupels
+    `(content, structured)`.
+  - `MCPServer.__init__` akzeptiert `host`/`port`/`stateless_http`/
+    `transport_security` nicht mehr — das sind neu `run()`- bzw. App-Kwargs.
+  - Der Lowlevel-Server ist als `_lowlevel_server` erreichbar und exponiert
+    kein `request_handlers`-Mapping mehr.
+
+  Gegen eine aufgezeichnete 1.x-Baseline verifiziert: die Suite besteht vor
+  und nach der Migration exakt dieselben Tests, ohne neue Fehlschläge und ohne
+  stillschweigend übersprungene Tests.
+
+### Added
+
+- **`serverInfo.version` im initialize-Handshake.** Der Server meldete bisher
+  einen leeren Version-String — ausgerechnet die Angabe, die bei einem
+  Bug-Report als Erstes gebraucht wird. Sie kommt neu aus der installierten
+  Distribution (`importlib.metadata`), kann also nicht gegenüber dem Paket
+  veralten; im Source-Checkout ohne Installation lautet sie `0.0.0+unknown`.
+
+### Docs
+
+- README (DE/EN) und CONTRIBUTING (DE/EN) sprachen weiterhin von «FastMCP» und
+  nannten `mcp[cli]>=1.0.0` als SDK-Version — beides auf `MCPServer` bzw.
+  `mcp[cli]>=2.0.0,<3` korrigiert.
 
 ## [0.4.0] - 2026-07-26
 

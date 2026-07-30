@@ -41,6 +41,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from typing import Any
 from urllib.parse import urlparse
 
@@ -869,8 +871,18 @@ def _sanitize_error(exc: BaseException) -> str:
 # was für read-only-Server wie diesen kein Datenverlust-Problem ist.
 _STATELESS_HTTP = os.environ.get("MCP_STATELESS_HTTP", "0") == "1"
 
+# `serverInfo.version` im initialize-Handshake. Ohne dieses Argument meldet das
+# SDK einen leeren String — was ausgerechnet bei Bug-Reports fehlt, wo als
+# Erstes «welche Version läuft bei dir?» zu klären ist. Quelle ist die
+# installierte Distribution, damit Paket und Handshake nicht auseinanderlaufen.
+try:
+    __version__ = _pkg_version("meteoswiss-mcp")
+except PackageNotFoundError:  # Source-Checkout ohne Installation
+    __version__ = "0.0.0+unknown"
+
 mcp = MCPServer(
     "meteoswiss_mcp",
+    version=__version__,
     lifespan=app_lifespan,
     instructions="""
 MCP-Server für Schweizer Wetter- und Klimadaten von MeteoSwiss.
