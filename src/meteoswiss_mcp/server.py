@@ -178,7 +178,18 @@ if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
 
 STAC_BASE = "https://data.geo.admin.ch/api/stac/v1"
 SMN_COLLECTION = "ch.meteoschweiz.ogd-smn"
-OPEN_METEO_BASE = "https://api.open-meteo.com/v1/meteoswiss"
+# Open-Meteo hat die provider-eigenen Pfade abgeschafft; `/v1/meteoswiss`
+# antwortet mit 404. Modelle werden neu über `models=` auf `/v1/forecast`
+# gewählt (Issue #35).
+OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast"
+
+# ICON-CH1 + ICON-CH2 als nahtlose Kette — die MeteoSwiss-Modelle, für die
+# dieser Server da ist. Reichweite live gemessen: 5 Tage (ICON-CH2-Horizont);
+# `forecast_days=16` liefert darüber hinaus nur Nullwerte. UV fehlt komplett,
+# auch stündlich — Open-Meteo bezieht UV aus CAMS, nicht aus dem Modelloutput.
+OPEN_METEO_SWISS_MODEL = "meteoswiss_icon_seamless"
+OPEN_METEO_SWISS_MAX_DAYS = 5
+
 GEOCODING_BASE = "https://geocoding-api.open-meteo.com/v1/search"
 
 # SwissMetNet-Stationen: Auswahl mit Relevanz für Schulen / städtische Planung
@@ -1220,14 +1231,88 @@ async def _geocode(
     return await _cached("geocoding", (location.lower().strip(),), _do_fetch)
 
 
+@dataclass(frozen=True)
+class ForecastProvenance:
+    """Woher die einzelnen Prognosewerte stammen.
+
+    Der Server mischt zwei Open-Meteo-Modelle, weil keines allein liefert, was
+    die Tools zusagen: MeteoSwiss ICON reicht 5 Tage weit und kennt keinen
+    UV-Index, `meteo_forecast` verspricht aber bis zu 16 Tage und
+    `meteo_school_check` warnt ab UV 6. Statt das stillschweigend zu mischen,
+    wird pro Antwort ausgewiesen, welcher Teil woher kommt.
+    """
+
+    swiss_days: int  # Tage, für die ICON-Werte vorlagen
+    total_days: int
+    icon_available: bool  # False, wenn der ICON-Request selbst scheiterte
+
+
+def _forecast_model_label(prov: ForecastProvenance) -> str:
+    """Modell-Angabe für Markdown-Fussnote und JSON-Provenance."""
+    if not prov.icon_available:
+        return "Open-Meteo best_match (MeteoSwiss ICON nicht verfügbar)"
+    if prov.swiss_days >= prov.total_days:
+        return "MeteoSwiss ICON-CH1/CH2 via Open-Meteo (UV: Open-Meteo best_match)"
+    return (
+        f"MeteoSwiss ICON-CH1/CH2 via Open-Meteo (Tag 1–{prov.swiss_days}), "
+        f"Open-Meteo best_match (ab Tag {prov.swiss_days + 1}; UV durchgehend)"
+    )
+
+
+def _merge_forecast_block(
+    swiss: dict[str, Any] | None, fallback: dict[str, Any]
+) -> tuple[dict[str, Any], int]:
+    """Führt einen `daily`- oder `hourly`-Block der beiden Modelle zusammen.
+
+    Zusammengeführt wird entlang der Zeitachse, nicht über Listenindizes: der
+    ICON-Block ist kürzer, und ein Indexversatz würde Werte auf den falschen
+    Tag schieben — still und praktisch unbemerkbar. MeteoSwiss gewinnt überall,
+    wo es einen Wert hat; `None` fällt auf best_match zurück. Das erledigt die
+    5-Tage-Grenze und die UV-Lücke mit derselben Regel.
+
+    Returns:
+        (zusammengeführter Block, Anzahl Zeitpunkte mit mindestens einem
+        MeteoSwiss-Wert)
+    """
+    fallback_times = fallback.get("time")
+    if not swiss or not fallback_times or "time" not in swiss:
+        return fallback, 0
+
+    swiss_at = {t: i for i, t in enumerate(swiss["time"])}
+    merged: dict[str, Any] = {"time": list(fallback_times)}
+    swiss_times: set[str] = set()
+
+    for key, fb_values in fallback.items():
+        if key == "time":
+            continue
+        sw_values = swiss.get(key)
+        out = []
+        for i, t in enumerate(fallback_times):
+            value = None
+            if sw_values is not None and t in swiss_at:
+                value = sw_values[swiss_at[t]]
+            if value is None:
+                out.append(fb_values[i])
+            else:
+                out.append(value)
+                swiss_times.add(t)
+        merged[key] = out
+
+    return merged, len(swiss_times)
+
+
 async def _fetch_open_meteo_forecast(
     client: httpx.AsyncClient,
     lat: float,
     lon: float,
     days: int,
     hourly: bool,
-) -> dict[str, Any]:
-    """Ruft MeteoSwiss ICON-Prognose von Open-Meteo ab.
+) -> tuple[dict[str, Any], ForecastProvenance]:
+    """Ruft die Prognose von Open-Meteo ab: MeteoSwiss ICON, ergänzt um
+    best_match für die Tage jenseits des ICON-Horizonts und für den UV-Index.
+
+    Fällt der ICON-Request aus, wird best_match allein ausgeliefert — das steht
+    dann so in der Provenance. Scheitert auch best_match, propagiert der Fehler.
 
     Gecached (TTL: MCP_CACHE_TTL_OPEN_METEO, default 10 min).
     """
@@ -1244,23 +1329,63 @@ async def _fetch_open_meteo_forecast(
         "sunrise",
         "sunset",
     ]
-    params: dict[str, Any] = {
-        "latitude": lat,
-        "longitude": lon,
-        "daily": ",".join(daily_vars),
-        "forecast_days": days,
-        "timezone": "Europe/Zurich",
-    }
-    if hourly:
-        params["hourly"] = (
-            "temperature_2m,precipitation,windspeed_10m,weathercode,"
-            "cloudcover,uv_index,relative_humidity_2m"
-        )
+    def _params(for_days: int, model: str | None) -> dict[str, Any]:
+        p: dict[str, Any] = {
+            "latitude": lat,
+            "longitude": lon,
+            "daily": ",".join(daily_vars),
+            "forecast_days": for_days,
+            "timezone": "Europe/Zurich",
+        }
+        if hourly:
+            p["hourly"] = (
+                "temperature_2m,precipitation,windspeed_10m,weathercode,"
+                "cloudcover,uv_index,relative_humidity_2m"
+            )
+        if model:
+            p["models"] = model
+        return p
 
-    async def _do_fetch():
-        resp = await client.get(OPEN_METEO_BASE, params=params)
+    async def _get(for_days: int, model: str | None) -> dict[str, Any]:
+        resp = await client.get(OPEN_METEO_BASE, params=_params(for_days, model))
         resp.raise_for_status()
         return resp.json()
+
+    async def _do_fetch():
+        swiss: dict[str, Any] | None = None
+        try:
+            swiss = await _get(
+                min(days, OPEN_METEO_SWISS_MAX_DAYS), OPEN_METEO_SWISS_MODEL
+            )
+        except Exception as exc:
+            # Kein harter Fehler: best_match trägt die Antwort allein, und die
+            # Provenance sagt, dass keine MeteoSwiss-Daten drinstecken.
+            logger.warning(
+                "upstream_degraded",
+                endpoint="open_meteo",
+                model=OPEN_METEO_SWISS_MODEL,
+                error_type=exc.__class__.__name__,
+            )
+
+        fallback = await _get(days, None)
+
+        merged = dict(fallback)
+        swiss_days = 0
+        for block in ("daily", "hourly"):
+            if block not in fallback:
+                continue
+            merged_block, swiss_slots = _merge_forecast_block(
+                (swiss or {}).get(block), fallback[block]
+            )
+            merged[block] = merged_block
+            if block == "daily":
+                swiss_days = swiss_slots
+
+        return merged, ForecastProvenance(
+            swiss_days=swiss_days,
+            total_days=len(fallback.get("daily", {}).get("time", [])),
+            icon_available=swiss is not None,
+        )
 
     # Cache-Key: gerundete Koordinaten + days + hourly
     # (Open-Meteo gibt für gleiche Stelle gleiche Daten zurück; sub-km-Drift
@@ -1856,7 +1981,11 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
     </use_case>
 
     <important_notes>
-    - Modell: MeteoSwiss ICON-CH1/CH2-EPS via Open-Meteo
+    - Modell: MeteoSwiss ICON-CH1/CH2 via Open-Meteo für Tag 1-5; darüber
+      hinaus sowie für den UV-Index Open-Meteo best_match, weil ICON nur
+      5 Tage weit reicht und keinen UV-Index führt. Welcher Teil woher
+      stammt, steht in jeder Antwort (Markdown-Fussnote bzw. JSON-Feld
+      `modell` / `modell_details`)
     - location wird geokodiert (Fuzzy-Fallback bei Misserfolg); lat/lon
       überschreibt location und spart einen HTTP-Roundtrip
     - Stündliche Daten füllen die ersten 48 Stunden, nicht den vollen Range
@@ -1907,7 +2036,7 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
         if ctx is not None:
             await ctx.info(f"Lade Prognose für {display_name}")
         try:
-            data = await _fetch_open_meteo_forecast(
+            data, prov = await _fetch_open_meteo_forecast(
                 client, lat, lon, params.days, params.hourly
             )
         except Exception as exc:
@@ -1934,11 +2063,16 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
                     "lat": lat,
                     "lon": lon,
                     "prognose_tage": params.days,
-                    "modell": "MeteoSwiss ICON-CH1/CH2-EPS via Open-Meteo",
+                    "modell": _forecast_model_label(prov),
+                    "modell_details": {
+                        "meteoswiss_icon_tage": prov.swiss_days,
+                        "tage_total": prov.total_days,
+                        "uv_quelle": "Open-Meteo best_match",
+                    },
                     "daten": data,
                 },
-                source="MeteoSwiss ICON-CH1/CH2-EPS via Open-Meteo",
-                data_source_url="https://api.open-meteo.com/v1/meteoswiss",
+                source=_forecast_model_label(prov),
+                data_source_url=OPEN_METEO_BASE,
             ),
             ensure_ascii=False,
             indent=2,
@@ -1959,7 +2093,7 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
 
     lines = [
         f"## Wetterprognose: {display_name}\n",
-        f"*{params.days}-Tage-Prognose | Modell: MeteoSwiss ICON-CH1/CH2-EPS | via Open-Meteo*\n",
+        f"*{params.days}-Tage-Prognose | Modell: {_forecast_model_label(prov)}*\n",
         "| Datum | Wetter | T min | T max | Regen | Regen-% | Wind | UV |",
         "|-------|--------|-------|-------|-------|---------|------|----|",
     ]
@@ -2013,7 +2147,7 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
 
     lines += [
         "",
-        "**Quelle:** MeteoSwiss ICON-CH1/CH2-EPS via Open-Meteo (api.open-meteo.com)",
+        f"**Quelle:** {_forecast_model_label(prov)} (api.open-meteo.com)",
         "**MeteoSwiss Prognosen:** https://www.meteoswiss.admin.ch/weather/forecasts/local-forecasts.html",
         "",
         "*→ `meteo_school_check` für Schuleignungs-Ampel | `meteo_current` für aktuelle Beobachtungen*",
@@ -2086,7 +2220,7 @@ async def meteo_school_check(
         if ctx is not None:
             await ctx.info(f"Lade 7-Tage-Forecast für {display_name}")
         try:
-            data = await _fetch_open_meteo_forecast(
+            data, prov = await _fetch_open_meteo_forecast(
                 client, lat, lon, 7, hourly=False
             )
         except Exception as exc:
@@ -2161,7 +2295,7 @@ async def meteo_school_check(
     lines += [
         "",
         "**Schwellenwerte:** Temp 5–33 °C | Regen < 1.5 mm | Wind < 50 km/h | UV ≥ 6 → Sonnenschutz",
-        "**Quelle:** MeteoSwiss ICON-CH1/CH2-EPS via Open-Meteo",
+        f"**Quelle:** {_forecast_model_label(prov)}",
         "**MeteoSwiss Warnungen:** https://www.meteoswiss.admin.ch/warnings.html",
         "",
         "*→ `meteo_forecast` für detaillierte Prognose | `meteo_warnings` für aktive Warnungen*",

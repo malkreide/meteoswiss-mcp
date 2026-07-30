@@ -20,9 +20,24 @@ from meteoswiss_mcp.server import (
     MONTHS_DE,
     SMN_STATIONS,
     WMO_CODES_DE,
+    _cache_clear,
     _school_verdict,
     _wmo_description,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cache():
+    """Der TTL-Cache ist modul-global und überlebt sonst den einzelnen Test.
+
+    Ohne diese Isolation sieht ein Test einen Eintrag, den ein früherer Test
+    hinterlassen hat, umgeht damit sein eigenes respx-Mock und schlägt je nach
+    Ausführungsreihenfolge fehl — oder, schlimmer, besteht aus dem falschen
+    Grund.
+    """
+    _cache_clear()
+    yield
+    _cache_clear()
 
 # ---------------------------------------------------------------------------
 # Statische Daten
@@ -559,6 +574,218 @@ async def test_lifespan_yields_appcontext():
         assert appctx.http is not None
         assert not appctx.http.is_closed
     assert appctx.http.is_closed
+
+
+# ---------------------------------------------------------------------------
+# Open-Meteo-Hybrid: MeteoSwiss ICON + best_match (Issue #35)
+# ---------------------------------------------------------------------------
+
+_OM_URL = "https://api.open-meteo.com/v1/forecast"
+_DAILY_KEYS = [
+    "temperature_2m_min",
+    "precipitation_sum",
+    "precipitation_probability_max",
+    "windspeed_10m_max",
+    "windgusts_10m_max",
+    "weathercode",
+    "sunshine_duration",
+]
+
+
+def _om_daily(dates, t_max, uv):
+    """Minimaler, aber vollständig geformter Open-Meteo-`daily`-Block."""
+    n = len(dates)
+    block = {
+        "time": list(dates),
+        "temperature_2m_max": list(t_max),
+        "uv_index_max": list(uv),
+        "sunrise": [f"{d}T06:00" for d in dates],
+        "sunset": [f"{d}T21:00" for d in dates],
+    }
+    for key in _DAILY_KEYS:
+        block[key] = [0] * n
+    return {"daily": block}
+
+
+_DATES_7 = [f"2026-08-{d:02d}" for d in range(1, 8)]
+
+# best_match: volle 7 Tage inkl. UV. ICON: 5 Tage, UV durchgehend None —
+# genau das Verhalten, das gegen die Live-API gemessen wurde.
+_OM_FALLBACK = _om_daily(_DATES_7, [10, 11, 12, 13, 14, 15, 16], [1, 2, 3, 4, 5, 6, 7])
+_OM_SWISS = _om_daily(_DATES_7[:5], [20, 21, 22, 23, 24], [None] * 5)
+
+
+def _mock_open_meteo(r, swiss=_OM_SWISS, fallback=_OM_FALLBACK, swiss_status=200):
+    """Mockt beide Open-Meteo-Requests, unterschieden am `models`-Parameter."""
+    r.get(_OM_URL, params__contains={"models": "meteoswiss_icon_seamless"}).respond(
+        swiss_status, json=swiss if swiss_status == 200 else {"error": True}
+    )
+    r.get(_OM_URL).respond(200, json=fallback)
+
+
+class TestMergeForecastBlock:
+    def test_meteoswiss_wins_where_it_has_values(self):
+        from meteoswiss_mcp.server import _merge_forecast_block
+
+        merged, swiss_days = _merge_forecast_block(
+            _OM_SWISS["daily"], _OM_FALLBACK["daily"]
+        )
+        assert merged["temperature_2m_max"] == [20, 21, 22, 23, 24, 15, 16]
+        assert swiss_days == 5
+
+    def test_uv_gap_falls_back_completely(self):
+        """ICON führt keinen UV-Index — best_match muss durchgehend liefern."""
+        from meteoswiss_mcp.server import _merge_forecast_block
+
+        merged, _ = _merge_forecast_block(_OM_SWISS["daily"], _OM_FALLBACK["daily"])
+        assert merged["uv_index_max"] == [1, 2, 3, 4, 5, 6, 7]
+
+    def test_merges_along_the_time_axis_not_the_index(self):
+        """Startet ICON später, dürfen die Werte nicht auf Tag 1 rutschen."""
+        from meteoswiss_mcp.server import _merge_forecast_block
+
+        shifted = _om_daily(_DATES_7[2:5], [30, 31, 32], [None] * 3)["daily"]
+        merged, swiss_days = _merge_forecast_block(shifted, _OM_FALLBACK["daily"])
+        assert merged["temperature_2m_max"] == [10, 11, 30, 31, 32, 15, 16]
+        assert swiss_days == 3
+
+    def test_without_swiss_block_the_fallback_passes_through(self):
+        from meteoswiss_mcp.server import _merge_forecast_block
+
+        merged, swiss_days = _merge_forecast_block(None, _OM_FALLBACK["daily"])
+        assert merged == _OM_FALLBACK["daily"]
+        assert swiss_days == 0
+
+
+class TestForecastModelLabel:
+    def test_hybrid_names_both_ranges(self):
+        from meteoswiss_mcp.server import ForecastProvenance, _forecast_model_label
+
+        label = _forecast_model_label(
+            ForecastProvenance(swiss_days=5, total_days=7, icon_available=True)
+        )
+        assert "Tag 1–5" in label
+        assert "ab Tag 6" in label
+
+    def test_full_swiss_coverage_says_so(self):
+        from meteoswiss_mcp.server import ForecastProvenance, _forecast_model_label
+
+        label = _forecast_model_label(
+            ForecastProvenance(swiss_days=3, total_days=3, icon_available=True)
+        )
+        assert "MeteoSwiss ICON" in label
+        assert "ab Tag" not in label
+
+    def test_icon_outage_is_declared_not_hidden(self):
+        from meteoswiss_mcp.server import ForecastProvenance, _forecast_model_label
+
+        label = _forecast_model_label(
+            ForecastProvenance(swiss_days=0, total_days=7, icon_available=False)
+        )
+        assert "nicht verfügbar" in label
+
+
+@pytest.mark.asyncio
+async def test_meteo_forecast_hybrid_end_to_end():
+    """Voller Pfad: beide Modelle abrufen, mischen, Herkunft ausweisen."""
+    import respx
+
+    from meteoswiss_mcp.server import ForecastInput, _cache_clear, meteo_forecast
+
+    _cache_clear()
+    with respx.mock(assert_all_called=True) as r:
+        _mock_open_meteo(r)
+        result = await meteo_forecast(
+            ForecastInput(latitude=47.3769, longitude=8.5417, days=7)
+        )
+
+    assert "⚠️" not in result
+    assert "20" in result  # ICON-Wert für Tag 1
+    assert "16" in result  # best_match-Wert für Tag 7
+    assert "Tag 1–5" in result  # Herkunft steht in der Ausgabe
+    assert "ab Tag 6" in result
+
+
+@pytest.mark.asyncio
+async def test_meteo_forecast_json_declares_provenance():
+    import respx
+
+    from meteoswiss_mcp.server import (
+        ForecastInput,
+        ResponseFormat,
+        _cache_clear,
+        meteo_forecast,
+    )
+
+    _cache_clear()
+    with respx.mock(assert_all_called=True) as r:
+        _mock_open_meteo(r)
+        result = await meteo_forecast(
+            ForecastInput(
+                latitude=47.3769,
+                longitude=8.5417,
+                days=7,
+                response_format=ResponseFormat.JSON,
+            )
+        )
+
+    payload = json.loads(result)
+    assert payload["payload"]["modell_details"]["meteoswiss_icon_tage"] == 5
+    assert payload["payload"]["modell_details"]["tage_total"] == 7
+    assert payload["provenance"]["data_source_url"] == _OM_URL
+
+
+@pytest.mark.asyncio
+async def test_meteo_forecast_survives_icon_outage():
+    """Fällt ICON aus, trägt best_match allein — und sagt es."""
+    import respx
+
+    from meteoswiss_mcp.server import ForecastInput, _cache_clear, meteo_forecast
+
+    _cache_clear()
+    with respx.mock(assert_all_called=True) as r:
+        _mock_open_meteo(r, swiss_status=500)
+        result = await meteo_forecast(
+            ForecastInput(latitude=47.3769, longitude=8.5417, days=7)
+        )
+
+    assert "⚠️" not in result  # kein Hard-Fail
+    assert "nicht verfügbar" in result  # Herkunft ehrlich ausgewiesen
+    assert "10" in result  # best_match-Wert für Tag 1
+
+
+@pytest.mark.asyncio
+async def test_meteo_school_check_gets_uv_from_fallback():
+    """Die UV-Ampel braucht best_match — ICON liefert keinen UV-Index."""
+    import respx
+
+    from meteoswiss_mcp.server import (
+        SchoolCheckInput,
+        _cache_clear,
+        meteo_school_check,
+    )
+
+    high_uv = _om_daily(_DATES_7, [20] * 7, [9] * 7)
+    _cache_clear()
+    with respx.mock(assert_all_called=False) as r:
+        r.get("https://geocoding-api.open-meteo.com/v1/search").respond(
+            200,
+            json={
+                "results": [
+                    {
+                        "name": "Zürich",
+                        "latitude": 47.3769,
+                        "longitude": 8.5417,
+                        "country": "Schweiz",
+                    }
+                ]
+            },
+        )
+        _mock_open_meteo(r, swiss=_OM_SWISS, fallback=high_uv)
+        result = await meteo_school_check(SchoolCheckInput(location="Zürich"))
+
+    assert "⚠️ Prognosedaten" not in result
+    assert "UV" in result
 
 
 @pytest.mark.asyncio
