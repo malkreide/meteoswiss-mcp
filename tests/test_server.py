@@ -187,6 +187,136 @@ async def test_meteo_current_invalid_station():
     assert "nicht" in result.lower() or "fehler" in result.lower()
 
 
+# ---------------------------------------------------------------------------
+# STAC-Item-URL & Asset-Auswahl (Issue #33)
+# ---------------------------------------------------------------------------
+
+_STAC_ASSET_BASE = "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo"
+
+# Ausschnitt aus dem echten STAC-Item von `klo`: die Granularität steckt im
+# Dateinamen (`_t_now`), nicht im Pfad — und Tages-/Historik-Assets liegen im
+# selben Dict.
+_STAC_ITEM_KLO = {
+    "id": "klo",
+    "assets": {
+        "ogd-smn_klo_d_historical.csv": {
+            "href": f"{_STAC_ASSET_BASE}/ogd-smn_klo_d_historical.csv"
+        },
+        "ogd-smn_klo_h_now.csv": {"href": f"{_STAC_ASSET_BASE}/ogd-smn_klo_h_now.csv"},
+        "ogd-smn_klo_t_recent.csv": {
+            "href": f"{_STAC_ASSET_BASE}/ogd-smn_klo_t_recent.csv"
+        },
+        "ogd-smn_klo_t_now.csv": {"href": f"{_STAC_ASSET_BASE}/ogd-smn_klo_t_now.csv"},
+    },
+}
+
+_SMN_NOW_CSV = (
+    "station_abbr;reference_timestamp;tre200s0;ure200s0;prestas0;pp0qnhs0;rre150z0\n"
+    "KLO;30.07.2026 13:10;21.4;57.3;970.0;1020.6;0\n"
+    "KLO;30.07.2026 13:20;21.8;56.9;970.1;1020.7;0\n"
+)
+
+
+class TestSmnStacItemUrl:
+    def test_item_id_is_the_bare_lowercase_code(self):
+        from meteoswiss_mcp.server import _smn_stac_item_url
+
+        url = _smn_stac_item_url("KLO")
+        assert url.endswith("/collections/ch.meteoschweiz.ogd-smn/items/klo")
+
+    def test_collection_id_is_not_repeated_as_item_prefix(self):
+        """Die 404-Ursache aus #33: `items/ch.meteoschweiz.ogd-smn-klo`."""
+        from meteoswiss_mcp.server import _smn_stac_item_url
+
+        assert "items/ch.meteoschweiz.ogd-smn-" not in _smn_stac_item_url("KLO")
+
+    def test_lowercase_input_yields_the_same_url(self):
+        from meteoswiss_mcp.server import _smn_stac_item_url
+
+        assert _smn_stac_item_url("klo") == _smn_stac_item_url("KLO")
+
+
+class TestSelectSmnNowAsset:
+    def test_prefers_ten_minute_now(self):
+        from meteoswiss_mcp.server import _select_smn_now_asset
+
+        href = _select_smn_now_asset(_STAC_ITEM_KLO["assets"])
+        assert href.endswith("ogd-smn_klo_t_now.csv")
+
+    def test_falls_back_to_ten_minute_recent(self):
+        from meteoswiss_mcp.server import _select_smn_now_asset
+
+        assets = {
+            k: v
+            for k, v in _STAC_ITEM_KLO["assets"].items()
+            if not k.endswith("_t_now.csv")
+        }
+        href = _select_smn_now_asset(assets)
+        assert href.endswith("ogd-smn_klo_t_recent.csv")
+
+    def test_never_falls_back_to_daily_or_historical(self):
+        """Lieber ein Fehler als Tageswerte von 1980 als «aktuelle Messung»."""
+        from meteoswiss_mcp.server import _select_smn_now_asset
+
+        assets = {
+            k: v
+            for k, v in _STAC_ITEM_KLO["assets"].items()
+            if "_t_" not in k
+        }
+        assert assets  # es sind noch Assets da, nur keine 10-Minuten-Werte
+        assert _select_smn_now_asset(assets) is None
+
+
+@pytest.mark.asyncio
+async def test_meteo_current_end_to_end_markdown():
+    """Vollständiger Pfad: STAC-Item → 10-min-CSV → Markdown-Tabelle."""
+    import respx
+
+    from meteoswiss_mcp.server import CurrentInput, _cache_clear, meteo_current
+
+    _cache_clear()
+    with respx.mock(assert_all_called=True) as r:
+        r.get(
+            "https://data.geo.admin.ch/api/stac/v1/collections/"
+            "ch.meteoschweiz.ogd-smn/items/klo"
+        ).respond(json=_STAC_ITEM_KLO)
+        r.get(f"{_STAC_ASSET_BASE}/ogd-smn_klo_t_now.csv").respond(text=_SMN_NOW_CSV)
+        result = await meteo_current(CurrentInput(station="KLO"))
+
+    assert "⚠️" not in result  # kein Fallback-Pfad
+    assert "21.8" in result  # jüngste Zeile, nicht die vorletzte
+    assert "30.07.2026 13:20" in result  # reference_timestamp, nicht "–"
+    assert "1020.7" in result  # QNH-Luftdruck wird gerendert
+
+
+@pytest.mark.asyncio
+async def test_meteo_current_json_provenance_url():
+    """Die Provenance-URL muss auf das Item zeigen, das auch abgerufen wurde."""
+    import respx
+
+    from meteoswiss_mcp.server import (
+        CurrentInput,
+        ResponseFormat,
+        _cache_clear,
+        meteo_current,
+    )
+
+    _cache_clear()
+    with respx.mock(assert_all_called=True) as r:
+        r.get(
+            "https://data.geo.admin.ch/api/stac/v1/collections/"
+            "ch.meteoschweiz.ogd-smn/items/klo"
+        ).respond(json=_STAC_ITEM_KLO)
+        r.get(f"{_STAC_ASSET_BASE}/ogd-smn_klo_t_now.csv").respond(text=_SMN_NOW_CSV)
+        result = await meteo_current(
+            CurrentInput(station="KLO", response_format=ResponseFormat.JSON)
+        )
+
+    payload = json.loads(result)
+    assert payload["provenance"]["data_source_url"].endswith("/items/klo")
+    assert len(payload["payload"]["beobachtungen"]) == 2
+
+
 @pytest.mark.asyncio
 async def test_meteo_climate_normals_klo():
     from meteoswiss_mcp.server import ClimateNormalsInput, meteo_climate_normals
@@ -1636,8 +1766,12 @@ async def test_live_meteo_current_klo():
     from meteoswiss_mcp.server import CurrentInput, meteo_current
 
     result = await meteo_current(CurrentInput(station="KLO"))
-    # Entweder echte Daten oder Fallback mit Link
-    assert "KLO" in result or "Zürich" in result
+    # Bewusst scharf: die frühere Fassung liess den Fallback-Pfad durchgehen
+    # ("KLO" und "Zürich" stehen auch in der Fehlermeldung) und hat deshalb den
+    # 404 aus #33 nie bemerkt. Hier muss es echte Messwerte geben.
+    assert "⚠️" not in result
+    assert "Messwerte" in result
+    assert "Temperatur 2 m" in result
 
 
 @pytest.mark.live
