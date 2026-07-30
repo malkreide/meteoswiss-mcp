@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Streamable-HTTP wies unter jedem echten Hostnamen mit 421 ab (SEC-005).**
+  `_build_http_app()` gab `stateless_http` an die App weiter, aber nicht den
+  Bind. Unter mcp 2.x ist `host` kein kosmetisches Argument: das SDK leitet
+  daraus seine Host-Allow-List ab und aktiviert bei loopback-artigem Wert
+  automatisch `127.0.0.1:*`. Da der Default `127.0.0.1` ist, traf das genau den
+  Fall, den der Einstiegspunkt fürs Cloud-Deployment vorsieht —
+  `MCP_HOST=0.0.0.0` mit `MCP_ALLOW_ANY_HOST=1`.
+
+  Der Bind reist jetzt mit, und eine echte Allow-List entsteht aus dem neuen
+  `MCP_ALLOWED_HOSTS`. Ohne diese Variable bleibt der Schutz auf einem
+  Nicht-Loopback-Bind bewusst aus und der Aufrufer warnt — eine geratene Liste
+  wäre genau der 421-Fall. Die per `MCP_ALLOWED_ORIGINS` konfigurierten
+  CORS-Origins werden mit aufgenommen.
+
+  Der optionale API-Key-Schutz ersetzt das nicht: er prüft, *wer* fragt, nicht
+  *unter welchem Namen* der Server angesprochen wird — DNS-Rebinding zielt auf
+  Letzteres.
+
+  13 neue Tests, darunter der tragende Fall „richtiger Hostname, falscher Port"
+  und einer, der festhält, dass `stateless_http` beim Ergänzen des neuen Kwargs
+  nicht verloren geht — genau diese Fehlerklasse wird hier ja aufgeräumt.
+  Mutationsgetestet: nimmt man den `host`-Kwarg wieder weg, fallen beide.
+
+  Geprüft mit den wörtlichen CI-Kommandos: 136 passed / 6 deselected,
+  `ruff check src/ tests/` clean.
+
+
 ## [0.6.0] - 2026-07-30
 
 Reparatur-Release. In `0.5.0` lieferten **drei der sechs Tools nichts** —
