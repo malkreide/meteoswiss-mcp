@@ -10,7 +10,7 @@
       "title": "Aktuelle SwissMetNet-Beobachtungen"
     },
     "meteo_forecast": {
-      "hash": "sha256:ebe183afec684e9a17b25209fa9e08fb5322356e901277ff5321a300d90858b9",
+      "hash": "sha256:49c4d57a06ef48aaeff9e3105090874a56ae2d006ef817f9965f49b4d178164f",
       "title": "Wetterprognose (MeteoSwiss ICON-Modell)"
     },
     "meteo_school_check": {

@@ -9,6 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Behoben
 
+- **`meteo_forecast` und `meteo_school_check` lieferten gar nichts mehr**
+  ([#35](https://github.com/malkreide/meteoswiss-mcp/issues/35)). Open-Meteo hat
+  die provider-eigenen Pfade abgeschafft; `/v1/meteoswiss` antwortet mit 404.
+  Modelle werden neu über `models=` auf `/v1/forecast` gewählt.
+
+  Ein reiner URL-Tausch reicht nicht, denn keines der MeteoSwiss-Modelle
+  liefert, was die beiden Tools zusagen. Live gemessen für
+  `meteoswiss_icon_seamless` (ICON-CH1 + ICON-CH2):
+
+  - **Reichweite 5 Tage.** `forecast_days=16` liefert darüber hinaus nur
+    Nullwerte — das ist der ICON-CH2-Horizont, kein Parameterproblem.
+    `meteo_forecast` verspricht aber bis zu 16 Tage.
+  - **Kein UV-Index**, auch nicht stündlich (0 von 72 Werten über 3 Tage).
+    Open-Meteo bezieht UV aus CAMS, nicht aus dem Modelloutput.
+    `meteo_school_check` warnt aber ab UV 6.
+
+  Der Server holt deshalb neu **beide** Modelle und mischt sie entlang der
+  Zeitachse: MeteoSwiss ICON gewinnt überall, wo es einen Wert hat, `None`
+  fällt auf `best_match` zurück. Dieselbe Regel erledigt die 5-Tage-Grenze und
+  die UV-Lücke. Gemischt wird bewusst über Zeitstempel statt Listenindizes —
+  der ICON-Block ist kürzer, und ein Indexversatz würde Werte still auf den
+  falschen Tag schieben.
+
+  **Die Herkunft steht in jeder Antwort**, statt im Ungefähren zu bleiben: die
+  Markdown-Fussnote und die JSON-Felder `modell` / `modell_details` weisen aus,
+  welche Tage aus MeteoSwiss ICON stammen, ab wann `best_match` übernimmt und
+  dass UV durchgehend von dort kommt. Fällt der ICON-Request aus, trägt
+  `best_match` die Antwort allein — und sagt das ebenfalls, statt einen
+  Totalausfall zu produzieren.
+
+  Kein Test hätte das finden können: die Unit-Tests deckten ausschliesslich
+  Geocoding-Fehlerpfade ab, der erfolgreiche Prognosepfad war komplett
+  ungetestet. Neu 11 Tests für Merge-Logik (inklusive Zeitachsen-Versatz),
+  Provenance-Label, den vollen Hybrid-Pfad in Markdown und JSON, den
+  ICON-Ausfall und die UV-Herkunft in `meteo_school_check`.
+
+### Changed
+
+- **`meteo_forecast`-Beschreibung präzisiert** — sie nannte pauschal
+  «MeteoSwiss ICON-CH1/CH2-EPS» und verschwieg damit, dass Tage jenseits von 5
+  und der UV-Index aus `best_match` stammen. `tool-hashes.json` entsprechend neu
+  generiert (Rug-Pull-Signal, SEC-022). Für Clients nicht breaking: Parameter
+  und Rückgabetyp sind unverändert, `days` akzeptiert weiterhin 1–16.
+
+### Tests
+
+- **Cache-Isolation zwischen Tests.** Der TTL-Cache ist modul-global und
+  überlebte den einzelnen Test. Ein Test sah dadurch Einträge eines früheren,
+  umging sein eigenes respx-Mock und schlug je nach Ausführungsreihenfolge fehl
+  — oder bestand aus dem falschen Grund. Eine autouse-Fixture räumt jetzt vor
+  und nach jedem Test auf.
+
 - **`meteo_current` lieferte für jede Station 404**
   ([#33](https://github.com/malkreide/meteoswiss-mcp/issues/33)). Die STAC-Item-ID
   ist der nackte Stationscode in Kleinschreibung (`…/items/klo`); der Server
