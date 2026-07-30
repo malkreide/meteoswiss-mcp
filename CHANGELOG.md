@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-30
+
+Reparatur-Release. In `0.5.0` lieferten **drei der sechs Tools nichts** —
+`meteo_current` für jede Station einen 404, `meteo_forecast` und
+`meteo_school_check` gar keine Daten. Drei unabhängige Ursachen, zwei davon
+Änderungen bei Datenquellen, eine ein Fehler im Server selbst. Alle drei sind
+live gegen die echten APIs verifiziert.
+
+Für Clients nicht breaking: Tool-Namen, Parameter und Rückgabetypen sind
+unverändert. Einzig die Beschreibung von `meteo_forecast` wurde präzisiert
+(siehe «Changed»), was `tool-hashes.json` ändert.
+
 ### Behoben
 
 - **Ortsnamen mit Zusatz waren gar nicht auflösbar**
@@ -83,14 +95,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generiert (Rug-Pull-Signal, SEC-022). Für Clients nicht breaking: Parameter
   und Rückgabetyp sind unverändert, `days` akzeptiert weiterhin 1–16.
 
-### Tests
-
-- **Cache-Isolation zwischen Tests.** Der TTL-Cache ist modul-global und
-  überlebte den einzelnen Test. Ein Test sah dadurch Einträge eines früheren,
-  umging sein eigenes respx-Mock und schlug je nach Ausführungsreihenfolge fehl
-  — oder bestand aus dem falschen Grund. Eine autouse-Fixture räumt jetzt vor
-  und nach jedem Test auf.
-
 - **`meteo_current` lieferte für jede Station 404**
   ([#33](https://github.com/malkreide/meteoswiss-mcp/issues/33)). Die STAC-Item-ID
   ist der nackte Stationscode in Kleinschreibung (`…/items/klo`); der Server
@@ -116,10 +120,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Die Zeile «Luftdruck (reduziert auf Meeresniveau)» blieb immer leer.**
     `prestah0` gibt es in der CSV nicht; der QNH-Wert heisst `pp0qnhs0`.
 
-- **Der Live-Test für `meteo_current` konnte den Fehler nicht finden.** Er prüfte
-  `"KLO" in result or "Zürich" in result` — beides steht auch in der
-  Fallback-Fehlermeldung, der Test war also gegen genau diesen Ausfall blind. Er
-  verlangt jetzt echte Messwerte.
+### Tests
+
+Alle drei Fehler oben hatten einen Test, der sie hätte finden müssen, aber so
+formuliert war, dass auch der Fehlerfall ihn erfüllte. Das ist das eigentliche
+Thema dieses Releases:
+
+- **`meteo_current` (live):** prüfte `"KLO" in result or "Zürich" in result` —
+  beides steht auch in der Fallback-Fehlermeldung. Der Test lief also durch
+  einen Totalausfall hindurch grün. Verlangt jetzt echte Messwerte.
+- **`meteo_forecast` / `meteo_school_check`:** der erfolgreiche Prognosepfad war
+  komplett ungetestet, abgedeckt waren nur Geocoding-Fehlerpfade. Zudem mockten
+  die Tests die eigene Endpoint-Konstante — sie konnten das Abschalten upstream
+  gar nicht bemerken.
+- **`_geocode` (live):** prüfte nur einen Koordinatenbereich (8.4–8.7), den
+  Dübendorf mit 8.62 ebenfalls erfüllt — der Fehlgriff auf eine andere Gemeinde
+  wäre durchgewinkt worden. Verlangt jetzt den Ortsnamen im Ergebnis.
+
+- **Cache-Isolation zwischen Tests.** Der TTL-Cache ist modul-global und
+  überlebte den einzelnen Test. Ein Test sah dadurch Einträge eines früheren,
+  umging sein eigenes respx-Mock und schlug je nach Ausführungsreihenfolge fehl
+  — oder bestand aus dem falschen Grund. Eine autouse-Fixture räumt jetzt vor
+  und nach jedem Test auf.
 
 ## [0.5.0] - 2026-07-30
 
