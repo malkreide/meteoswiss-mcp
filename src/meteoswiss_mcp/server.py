@@ -1178,15 +1178,71 @@ def _school_verdict(
     return "🟢", "Geeignet für Aussenaktivitäten"
 
 
+def _names_match(query: str, found: str) -> bool:
+    """Ob ein Treffername wirklich der gesuchte Ort ist und nicht bloss einer,
+    der ihn als Wortbestandteil führt.
+
+    Trennt «Leutschenbach» → `Leutschenbach` (echter Treffer) von
+    «Schulhaus» → `Dübendorf / Schulhaus Wil` (ein anderer Ort, der zufällig
+    dasselbe Gattungswort enthält).
+    """
+    return query.strip().casefold() == found.strip().casefold()
+
+
+def _geocode_fallback_candidates(location: str) -> list[tuple[str, bool]]:
+    """Gekürzte Anfragen für einen Ortsnamen, von spezifisch nach allgemein.
+
+    Die Geocoding-API kennt nur einzelne Ortsnamen; «Schulhaus Leutschenbach
+    Zürich» findet sie nicht. Schweizer Ortsangaben sind aber konventionell
+    `Gattungswort… Ort Stadt`, also werden führende Tokens nach und nach
+    weggelassen. Das verallgemeinert (Leutschenbach → Zürich), statt
+    danebenzugreifen, und endet immer bei der Stadt.
+
+    Zusätzlich wird jedes führende Token einzeln probiert — aber nur mit
+    Namensprüfung (zweiter Tupelwert `True`). Sonst würde «Schulhaus» auf
+    «Dübendorf / Schulhaus Wil» führen und eine Zürcher Anfrage stillschweigend
+    mit Wetter aus einer anderen Gemeinde beantworten. Das letzte verbleibende
+    Token ist der Schluss-Fallback und braucht die Prüfung nicht: dort ist die
+    Verallgemeinerung gewollt, und Umlaut-Varianten («Zürich» → `Zurich`)
+    sollen sie nicht verhindern.
+
+    Returns:
+        [(Suchbegriff, Namensprüfung nötig), …] — leer bei einwortigen Orten.
+    """
+    tokens = location.split()
+    if len(tokens) < 2:
+        return []
+
+    candidates: list[tuple[str, bool]] = []
+    for i in range(1, len(tokens)):
+        candidates.append((tokens[i - 1], True))  # führendes Token allein
+        candidates.append((" ".join(tokens[i:]), False))  # Rest als Phrase
+    return candidates
+
+
+def _geocode_result(
+    result: dict[str, Any], location: str, match_type: str
+) -> tuple[float, float, str, str]:
+    """Formt einen Geocoding-Treffer in das Rückgabetupel von `_geocode`."""
+    display = result.get("name", location)
+    admin = result.get("admin1", "")
+    country = result.get("country_code", "")
+    if admin:
+        display = f"{display}, {admin} ({country})"
+    return float(result["latitude"]), float(result["longitude"]), display, match_type
+
+
 async def _geocode(
     client: httpx.AsyncClient, location: str
 ) -> tuple[float, float, str, str]:
     """Löst einen Ortsnamen in (lat, lon, display_name, match_type).
 
     match_type:
-        "exact"  — erster Treffer der DE-Suche
-        "fuzzy"  — Fallback ohne Sprache + count=5, dann bester Hit
-        "none"   — keine Treffer (wirft ValueError, wie zuvor)
+        "exact"     — erster Treffer der DE-Suche auf den vollen String
+        "fuzzy"     — voller String ohne Sprachrestriktion, mehrere Kandidaten
+        "shortened" — erst eine gekürzte Anfrage traf; das Ergebnis ist
+                      allgemeiner als das, wonach gefragt wurde
+        "none"      — keine Treffer (wirft ValueError, wie zuvor)
 
     ARCH-003: kein stilles «not found» mehr — bei Misserfolg wird mit relaxter
     Suche nachgehakt, bevor der Fehler eskaliert wird.
@@ -1196,37 +1252,34 @@ async def _geocode(
     """
 
     async def _do_fetch():
+        async def _query(name: str, count: int, language: str | None):
+            params: dict[str, Any] = {"name": name, "count": count, "format": "json"}
+            if language:
+                params["language"] = language
+            resp = await client.get(GEOCODING_BASE, params=params)
+            resp.raise_for_status()
+            return resp.json().get("results", [])
+
         # Versuch 1: exakter Match auf Deutsch
-        resp = await client.get(
-            GEOCODING_BASE,
-            params={"name": location, "count": 1, "language": "de", "format": "json"},
-        )
-        resp.raise_for_status()
-        d = resp.json()
-        rs = d.get("results", [])
-        m = "exact"
+        rs = await _query(location, 1, "de")
+        if rs:
+            return _geocode_result(rs[0], location, "exact")
 
-        if not rs:
-            # Versuch 2 (fuzzy): ohne language-Restriktion, mehrere Kandidaten
-            resp2 = await client.get(
-                GEOCODING_BASE,
-                params={"name": location, "count": 5, "format": "json"},
-            )
-            resp2.raise_for_status()
-            d = resp2.json()
-            rs = d.get("results", [])
-            m = "fuzzy"
+        # Versuch 2 (fuzzy): ohne language-Restriktion, mehrere Kandidaten
+        rs = await _query(location, 5, None)
+        if rs:
+            return _geocode_result(rs[0], location, "fuzzy")
 
-        if not rs:
-            raise ValueError(f"Ort '{location}' nicht gefunden.")
+        # Versuch 3: gekürzte Anfragen (Issue #37)
+        for candidate, needs_name_match in _geocode_fallback_candidates(location):
+            rs = await _query(candidate, 5, None)
+            if not rs:
+                continue
+            if needs_name_match and not _names_match(candidate, rs[0].get("name", "")):
+                continue
+            return _geocode_result(rs[0], location, "shortened")
 
-        r = rs[0]
-        display = r.get("name", location)
-        admin = r.get("admin1", "")
-        country = r.get("country_code", "")
-        if admin:
-            display = f"{display}, {admin} ({country})"
-        return float(r["latitude"]), float(r["longitude"]), display, m
+        raise ValueError(f"Ort '{location}' nicht gefunden.")
 
     return await _cached("geocoding", (location.lower().strip(),), _do_fetch)
 

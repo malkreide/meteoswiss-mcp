@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Behoben
 
+- **Ortsnamen mit Zusatz waren gar nicht auflösbar**
+  ([#37](https://github.com/malkreide/meteoswiss-mcp/issues/37)). Die
+  Geocoding-API kennt nur einzelne Ortsnamen und liefert für
+  «Schulhaus Leutschenbach Zürich» nichts. `_geocode()` schickte den vollen
+  String in *beiden* Versuchen — der «Fuzzy»-Retry liess nur die
+  Sprachrestriktion weg und kürzte die Anfrage nie. Damit scheiterten auch die
+  Beispiele, die die Tools selbst dokumentieren (`meteo_forecast`-Docstring und
+  die `location`-Beschreibung von `meteo_school_check`).
+
+  Neu werden bei Misserfolg führende Tokens nach und nach weggelassen —
+  Schweizer Ortsangaben sind konventionell `Gattungswort… Ort Stadt`, das
+  verallgemeinert also von spezifisch nach allgemein und endet bei der Stadt.
+  Zusätzlich wird jedes führende Token einzeln probiert, **aber nur mit
+  Namensprüfung**: «Leutschenbach» → `Leutschenbach` wird angenommen,
+  «Schulhaus» → `Dübendorf / Schulhaus Wil` verworfen. Ohne diese Prüfung
+  bekäme eine Zürcher Anfrage stillschweigend Wetter aus einer anderen
+  Gemeinde — schlimmer als der bisherige harte Fehler.
+
+  Live verifiziert:
+
+  | Anfrage | Ergebnis |
+  |---|---|
+  | `Schulhaus Leutschenbach Zürich` | Leutschenbach, ZH (47.4175, 8.5648) |
+  | `Sportanlage Heerenschürli Zürich` | Zurich, ZH (47.3667, 8.5500) |
+  | `Zürich` / `Bern` | unverändert `exact`, ein einziger Request |
+
+  `match_type` kennt dafür neu `"shortened"` — Aufrufende sehen damit, dass die
+  Antwort allgemeiner ist als die Frage. Ein Volltreffer löst weiterhin genau
+  einen Request aus; gekürzt wird nur, wenn der volle String scheitert.
+
 - **`meteo_forecast` und `meteo_school_check` lieferten gar nichts mehr**
   ([#35](https://github.com/malkreide/meteoswiss-mcp/issues/35)). Open-Meteo hat
   die provider-eigenen Pfade abgeschafft; `/v1/meteoswiss` antwortet mit 404.
