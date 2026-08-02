@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name        = "meteoswiss-mcp"
-version     = "0.6.0"
+version     = "0.6.1"
 description = "MCP Server for Swiss weather and climate data — MeteoSwiss SwissMetNet, ICON forecasts, climate normals"
 readme      = "README.md"
 license     = { file = "LICENSE" }
@@ -35,7 +35,7 @@ dependencies = [
     "mcp[cli]>=2.0.0,<3",
     "httpx>=0.27.0",
     "pydantic>=2.0.0",
-    "structlog>=24.0.0",
+    "structlog>=24.0.0,<27",
 ]
 
 [project.optional-dependencies]
