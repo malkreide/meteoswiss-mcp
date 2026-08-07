@@ -40,6 +40,7 @@ def _isolate_cache():
     yield
     _cache_clear()
 
+
 # ---------------------------------------------------------------------------
 # Statische Daten
 # ---------------------------------------------------------------------------
@@ -254,11 +255,7 @@ class TestSelectSmnNowAsset:
     def test_falls_back_to_ten_minute_recent(self):
         from meteoswiss_mcp.server import _select_smn_now_asset
 
-        assets = {
-            k: v
-            for k, v in _STAC_ITEM_KLO["assets"].items()
-            if not k.endswith("_t_now.csv")
-        }
+        assets = {k: v for k, v in _STAC_ITEM_KLO["assets"].items() if not k.endswith("_t_now.csv")}
         href = _select_smn_now_asset(assets)
         assert href.endswith("ogd-smn_klo_t_recent.csv")
 
@@ -266,11 +263,7 @@ class TestSelectSmnNowAsset:
         """Lieber ein Fehler als Tageswerte von 1980 als «aktuelle Messung»."""
         from meteoswiss_mcp.server import _select_smn_now_asset
 
-        assets = {
-            k: v
-            for k, v in _STAC_ITEM_KLO["assets"].items()
-            if "_t_" not in k
-        }
+        assets = {k: v for k, v in _STAC_ITEM_KLO["assets"].items() if "_t_" not in k}
         assert assets  # es sind noch Assets da, nur keine 10-Minuten-Werte
         assert _select_smn_now_asset(assets) is None
 
@@ -285,8 +278,7 @@ async def test_meteo_current_end_to_end_markdown():
     _cache_clear()
     with respx.mock(assert_all_called=True) as r:
         r.get(
-            "https://data.geo.admin.ch/api/stac/v1/collections/"
-            "ch.meteoschweiz.ogd-smn/items/klo"
+            "https://data.geo.admin.ch/api/stac/v1/collections/ch.meteoschweiz.ogd-smn/items/klo"
         ).respond(json=_STAC_ITEM_KLO)
         r.get(f"{_STAC_ASSET_BASE}/ogd-smn_klo_t_now.csv").respond(text=_SMN_NOW_CSV)
         result = await meteo_current(CurrentInput(station="KLO"))
@@ -304,8 +296,7 @@ async def test_meteo_current_end_to_end_markdown():
     assert _latest["tre200s0"] in result  # jüngste Zeile
     assert _latest["reference_timestamp"] in result  # nicht "–"
     assert _rows[-2]["reference_timestamp"] not in result, (
-        "die vorletzte Zeile steht in der Ausgabe — es wird nicht die juengste "
-        "gerendert"
+        "die vorletzte Zeile steht in der Ausgabe — es wird nicht die juengste gerendert"
     )
     assert _latest["pp0qnhs0"] in result  # QNH-Luftdruck wird gerendert
 
@@ -325,8 +316,7 @@ async def test_meteo_current_json_provenance_url():
     _cache_clear()
     with respx.mock(assert_all_called=True) as r:
         r.get(
-            "https://data.geo.admin.ch/api/stac/v1/collections/"
-            "ch.meteoschweiz.ogd-smn/items/klo"
+            "https://data.geo.admin.ch/api/stac/v1/collections/ch.meteoschweiz.ogd-smn/items/klo"
         ).respond(json=_STAC_ITEM_KLO)
         r.get(f"{_STAC_ASSET_BASE}/ogd-smn_klo_t_now.csv").respond(text=_SMN_NOW_CSV)
         result = await meteo_current(
@@ -639,9 +629,7 @@ class TestMergeForecastBlock:
     def test_meteoswiss_wins_where_it_has_values(self):
         from meteoswiss_mcp.server import _merge_forecast_block
 
-        merged, swiss_days = _merge_forecast_block(
-            _OM_SWISS["daily"], _OM_FALLBACK["daily"]
-        )
+        merged, swiss_days = _merge_forecast_block(_OM_SWISS["daily"], _OM_FALLBACK["daily"])
         assert merged["temperature_2m_max"] == [20, 21, 22, 23, 24, 15, 16]
         assert swiss_days == 5
 
@@ -707,9 +695,7 @@ async def test_meteo_forecast_hybrid_end_to_end():
     _cache_clear()
     with respx.mock(assert_all_called=True) as r:
         _mock_open_meteo(r)
-        result = await meteo_forecast(
-            ForecastInput(latitude=47.3769, longitude=8.5417, days=7)
-        )
+        result = await meteo_forecast(ForecastInput(latitude=47.3769, longitude=8.5417, days=7))
 
     assert "⚠️" not in result
     assert "20" in result  # ICON-Wert für Tag 1
@@ -757,9 +743,7 @@ async def test_meteo_forecast_survives_icon_outage():
     _cache_clear()
     with respx.mock(assert_all_called=True) as r:
         _mock_open_meteo(r, swiss_status=500)
-        result = await meteo_forecast(
-            ForecastInput(latitude=47.3769, longitude=8.5417, days=7)
-        )
+        result = await meteo_forecast(ForecastInput(latitude=47.3769, longitude=8.5417, days=7))
 
     assert "⚠️" not in result  # kein Hard-Fail
     assert "nicht verfügbar" in result  # Herkunft ehrlich ausgewiesen
@@ -1429,9 +1413,7 @@ async def test_geocode_recovers_the_specific_locality():
     with respx.mock(assert_all_called=False) as r:
         r.get("https://geocoding-api.open-meteo.com/v1/search").side_effect = responses
         async with _build_http_client() as client:
-            lat, lon, display, match = await _geocode(
-                client, "Schulhaus Leutschenbach Zürich"
-            )
+            lat, lon, display, match = await _geocode(client, "Schulhaus Leutschenbach Zürich")
 
     assert (lat, lon) == (47.41, 8.55)  # nicht Dübendorf (47.40, 8.62)
     assert "Leutschenbach" in display
@@ -1459,9 +1441,7 @@ async def test_geocode_generalises_to_the_city_when_locality_is_unknown():
     with respx.mock(assert_all_called=False) as r:
         r.get("https://geocoding-api.open-meteo.com/v1/search").side_effect = responses
         async with _build_http_client() as client:
-            lat, lon, _display, match = await _geocode(
-                client, "Sportanlage Heerenschürli Zürich"
-            )
+            lat, lon, _display, match = await _geocode(client, "Sportanlage Heerenschürli Zürich")
 
     assert (lat, lon) == (47.3769, 8.5417)
     assert match == "shortened"

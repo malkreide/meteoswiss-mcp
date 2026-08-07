@@ -74,9 +74,7 @@ structlog.configure(
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.JSONRenderer(),
     ],
-    wrapper_class=structlog.make_filtering_bound_logger(
-        getattr(logging, _LOG_LEVEL, logging.INFO)
-    ),
+    wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, _LOG_LEVEL, logging.INFO)),
     logger_factory=structlog.WriteLoggerFactory(file=sys.stderr),
     cache_logger_on_first_use=True,
 )
@@ -145,6 +143,7 @@ def _traced_tool(name: str):
 
     return decorator
 
+
 if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
     try:
         from opentelemetry import trace as _ot_trace
@@ -196,12 +195,36 @@ GEOCODING_BASE = "https://geocoding-api.open-meteo.com/v1/search"
 # Koordinaten: WGS84, Höhe in m ü. M.
 SMN_STATIONS: dict[str, dict[str, Any]] = {
     # Kanton Zürich
-    "KLO": {"name": "Zürich/Kloten (Flughafen)", "lat": 47.4802, "lon": 8.5364, "alt": 436, "canton": "ZH"},
-    "SMA": {"name": "Zürich/MeteoSchweiz", "lat": 47.3783, "lon": 8.5651, "alt": 556, "canton": "ZH"},
+    "KLO": {
+        "name": "Zürich/Kloten (Flughafen)",
+        "lat": 47.4802,
+        "lon": 8.5364,
+        "alt": 436,
+        "canton": "ZH",
+    },
+    "SMA": {
+        "name": "Zürich/MeteoSchweiz",
+        "lat": 47.3783,
+        "lon": 8.5651,
+        "alt": 556,
+        "canton": "ZH",
+    },
     "REH": {"name": "Zürich/Affoltern", "lat": 47.4297, "lon": 8.5121, "alt": 444, "canton": "ZH"},
-    "REC": {"name": "Zürich/Reckenholz (MeteoSchweiz)", "lat": 47.4524, "lon": 8.5147, "alt": 443, "canton": "ZH"},
+    "REC": {
+        "name": "Zürich/Reckenholz (MeteoSchweiz)",
+        "lat": 47.4524,
+        "lon": 8.5147,
+        "alt": 443,
+        "canton": "ZH",
+    },
     "WAE": {"name": "Wädenswil", "lat": 47.2203, "lon": 8.6839, "alt": 485, "canton": "ZH"},
-    "TAE": {"name": "Tänikon (Agroscope)", "lat": 47.4771, "lon": 8.9033, "alt": 539, "canton": "TG"},
+    "TAE": {
+        "name": "Tänikon (Agroscope)",
+        "lat": 47.4771,
+        "lon": 8.9033,
+        "alt": 539,
+        "canton": "TG",
+    },
     # Kanton Bern
     "BER": {"name": "Bern/Zollikofen", "lat": 46.9907, "lon": 7.4649, "alt": 552, "canton": "BE"},
     "INT": {"name": "Interlaken", "lat": 46.6655, "lon": 7.8706, "alt": 577, "canton": "BE"},
@@ -281,15 +304,33 @@ SCHOOL_THRESHOLDS: dict[str, Any] = {
     "temp_max_c": 33.0,
     "precip_max_mm": 1.5,
     "wind_max_kmh": 50.0,
-    "uv_warning": 6,      # UV-Index ab dem Sonnenschutz empfohlen wird
+    "uv_warning": 6,  # UV-Index ab dem Sonnenschutz empfohlen wird
     "good_wmo_codes": {0, 1, 2},
     "marginal_wmo_codes": {3, 45},
     "bad_wmo_codes": {
-        48, 51, 53, 55, 56, 57,
-        61, 63, 65, 66, 67,
-        71, 73, 75, 77,
-        80, 81, 82, 85, 86,
-        95, 96, 99,
+        48,
+        51,
+        53,
+        55,
+        56,
+        57,
+        61,
+        63,
+        65,
+        66,
+        67,
+        71,
+        73,
+        75,
+        77,
+        80,
+        81,
+        82,
+        85,
+        86,
+        95,
+        96,
+        99,
     },
 }
 
@@ -378,12 +419,12 @@ async def _validate_request_hook(request: httpx.Request) -> None:
 # (= "wenig schneller, niemals zu alt").
 
 _CACHE_TTL = {
-    "stac_item":      int(os.environ.get("MCP_CACHE_TTL_STAC", "300")),       # 5 min
-    "open_meteo":     int(os.environ.get("MCP_CACHE_TTL_OPEN_METEO", "600")), # 10 min
-    "geocoding":      int(os.environ.get("MCP_CACHE_TTL_GEOCODING", "3600")), # 1 h
+    "stac_item": int(os.environ.get("MCP_CACHE_TTL_STAC", "300")),  # 5 min
+    "open_meteo": int(os.environ.get("MCP_CACHE_TTL_OPEN_METEO", "600")),  # 10 min
+    "geocoding": int(os.environ.get("MCP_CACHE_TTL_GEOCODING", "3600")),  # 1 h
     "opendata_swiss": int(os.environ.get("MCP_CACHE_TTL_OPENDATA", "3600")),  # 1 h
-    "warnings_api":   int(os.environ.get("MCP_CACHE_TTL_WARNINGS", "300")),   # 5 min
-    "stac_climate":   int(os.environ.get("MCP_CACHE_TTL_STAC_CLIMATE", "86400")),  # 24 h
+    "warnings_api": int(os.environ.get("MCP_CACHE_TTL_WARNINGS", "300")),  # 5 min
+    "stac_climate": int(os.environ.get("MCP_CACHE_TTL_STAC_CLIMATE", "86400")),  # 24 h
 }
 _CACHE_ENABLED = os.environ.get("MCP_CACHE_ENABLED", "1") == "1"
 
@@ -604,8 +645,7 @@ def _normalize_app_warning(raw: Any, lang: str) -> dict[str, Any] | None:
         "type_label": _warn_type_label(warn_type, links, lang),
         "level": level,
         "level_label": (
-            WARN_LEVEL_LABELS.get(level, {}).get(lang)
-            or WARN_LEVEL_LABELS.get(level, {}).get("en")
+            WARN_LEVEL_LABELS.get(level, {}).get(lang) or WARN_LEVEL_LABELS.get(level, {}).get("en")
             if isinstance(level, int)
             else None
         ),
@@ -647,7 +687,7 @@ def _dedupe_warnings(warnings: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         seen.add(key)
         unique.append(w)
-    unique.sort(key=lambda w: (w.get("level") or 0), reverse=True)
+    unique.sort(key=lambda w: w.get("level") or 0, reverse=True)
     return unique
 
 
@@ -732,9 +772,7 @@ def _aggregate_warnings_by_type(warnings: list[dict[str, Any]]) -> list[dict[str
     return out
 
 
-def _normalize_warnings_response(
-    raw: Any, canton_filter: str
-) -> list[dict[str, Any]]:
+def _normalize_warnings_response(raw: Any, canton_filter: str) -> list[dict[str, Any]]:
     """Bringt unterschiedliche Warnings-API-Schemas auf ein gemeinsames Format.
 
     Erwartete Felder pro Warnung (best-effort über mehrere Schemata):
@@ -765,12 +803,7 @@ def _normalize_warnings_response(
         if not isinstance(it, dict):
             continue
         props = it.get("properties", it)  # GeoJSON-Features haben "properties"
-        regions = (
-            props.get("regions")
-            or props.get("canton")
-            or props.get("cantons")
-            or []
-        )
+        regions = props.get("regions") or props.get("canton") or props.get("cantons") or []
         if isinstance(regions, str):
             regions = [regions]
         regions_upper = [str(r).upper() for r in regions]
@@ -1232,9 +1265,7 @@ def _geocode_result(
     return float(result["latitude"]), float(result["longitude"]), display, match_type
 
 
-async def _geocode(
-    client: httpx.AsyncClient, location: str
-) -> tuple[float, float, str, str]:
+async def _geocode(client: httpx.AsyncClient, location: str) -> tuple[float, float, str, str]:
     """Löst einen Ortsnamen in (lat, lon, display_name, match_type).
 
     match_type:
@@ -1382,6 +1413,7 @@ async def _fetch_open_meteo_forecast(
         "sunrise",
         "sunset",
     ]
+
     def _params(for_days: int, model: str | None) -> dict[str, Any]:
         p: dict[str, Any] = {
             "latitude": lat,
@@ -1407,9 +1439,7 @@ async def _fetch_open_meteo_forecast(
     async def _do_fetch():
         swiss: dict[str, Any] | None = None
         try:
-            swiss = await _get(
-                min(days, OPEN_METEO_SWISS_MAX_DAYS), OPEN_METEO_SWISS_MODEL
-            )
+            swiss = await _get(min(days, OPEN_METEO_SWISS_MAX_DAYS), OPEN_METEO_SWISS_MODEL)
         except Exception as exc:
             # Kein harter Fehler: best_match trägt die Antwort allein, und die
             # Provenance sagt, dass keine MeteoSwiss-Daten drinstecken.
@@ -1482,9 +1512,7 @@ def _select_smn_now_asset(assets: dict[str, Any]) -> str | None:
     return None
 
 
-async def _fetch_stac_now_csv(
-    client: httpx.AsyncClient, station: str
-) -> list[dict[str, str]]:
+async def _fetch_stac_now_csv(client: httpx.AsyncClient, station: str) -> list[dict[str, str]]:
     """
     Lädt die neueste 10-Minuten-CSV einer SMN-Station via STAC API.
     Gibt die letzten Zeilen als Liste von Dictionaries zurück.
@@ -1503,9 +1531,7 @@ async def _fetch_stac_now_csv(
 
         now_url = _select_smn_now_asset(item.get("assets", {}))
         if not now_url:
-            raise ValueError(
-                f"Kein 10-Minuten-CSV-Asset für Station '{station}' in STAC gefunden."
-            )
+            raise ValueError(f"Kein 10-Minuten-CSV-Asset für Station '{station}' in STAC gefunden.")
 
         resp_csv = await client.get(now_url)
         resp_csv.raise_for_status()
@@ -1557,35 +1583,45 @@ def _format_smn_rows(rows: list[dict[str, str]], station_info: dict[str, Any]) -
 # Quellen: MeteoSwiss Klimanormwerte 1991–2020
 CLIMATE_NORMALS: dict[str, dict[str, list[float]]] = {
     "KLO": {
-        "temp_mean":  [-0.6, 0.6, 4.5, 8.6, 13.4, 16.5, 18.7, 18.3, 14.1, 9.5, 4.1, 0.4],
-        "precip_mm":  [61, 56, 66, 74, 100, 112, 99, 104, 81, 69, 72, 68],
+        "temp_mean": [-0.6, 0.6, 4.5, 8.6, 13.4, 16.5, 18.7, 18.3, 14.1, 9.5, 4.1, 0.4],
+        "precip_mm": [61, 56, 66, 74, 100, 112, 99, 104, 81, 69, 72, 68],
         "sunshine_h": [60, 78, 127, 159, 191, 208, 229, 210, 162, 114, 65, 50],
     },
     "SMA": {
-        "temp_mean":  [0.2, 1.4, 5.4, 9.6, 14.3, 17.3, 19.7, 19.3, 14.9, 10.3, 4.7, 1.2],
-        "precip_mm":  [66, 60, 72, 79, 103, 118, 107, 112, 87, 73, 77, 73],
+        "temp_mean": [0.2, 1.4, 5.4, 9.6, 14.3, 17.3, 19.7, 19.3, 14.9, 10.3, 4.7, 1.2],
+        "precip_mm": [66, 60, 72, 79, 103, 118, 107, 112, 87, 73, 77, 73],
         "sunshine_h": [62, 81, 131, 163, 196, 213, 234, 217, 166, 116, 67, 52],
     },
     "BER": {
-        "temp_mean":  [0.9, 2.0, 6.2, 10.0, 14.7, 17.7, 20.0, 19.5, 15.2, 10.5, 5.0, 1.6],
-        "precip_mm":  [72, 64, 75, 80, 109, 120, 110, 118, 92, 75, 82, 78],
+        "temp_mean": [0.9, 2.0, 6.2, 10.0, 14.7, 17.7, 20.0, 19.5, 15.2, 10.5, 5.0, 1.6],
+        "precip_mm": [72, 64, 75, 80, 109, 120, 110, 118, 92, 75, 82, 78],
         "sunshine_h": [63, 82, 133, 164, 197, 213, 236, 219, 168, 118, 68, 52],
     },
     "LUG": {
-        "temp_mean":  [3.8, 5.0, 9.4, 13.5, 18.1, 21.4, 24.0, 23.3, 18.8, 13.4, 7.8, 4.3],
-        "precip_mm":  [60, 64, 100, 153, 195, 165, 122, 149, 172, 137, 116, 69],
+        "temp_mean": [3.8, 5.0, 9.4, 13.5, 18.1, 21.4, 24.0, 23.3, 18.8, 13.4, 7.8, 4.3],
+        "precip_mm": [60, 64, 100, 153, 195, 165, 122, 149, 172, 137, 116, 69],
         "sunshine_h": [108, 124, 167, 194, 228, 244, 277, 255, 202, 163, 103, 90],
     },
     "GVE": {
-        "temp_mean":  [2.3, 3.5, 7.5, 11.4, 16.0, 19.1, 21.5, 20.9, 16.5, 11.7, 6.0, 2.8],
-        "precip_mm":  [73, 65, 74, 68, 84, 82, 65, 78, 87, 81, 94, 91],
+        "temp_mean": [2.3, 3.5, 7.5, 11.4, 16.0, 19.1, 21.5, 20.9, 16.5, 11.7, 6.0, 2.8],
+        "precip_mm": [73, 65, 74, 68, 84, 82, 65, 78, 87, 81, 94, 91],
         "sunshine_h": [67, 88, 141, 174, 209, 228, 256, 235, 183, 133, 75, 59],
     },
 }
 
 MONTHS_DE = [
-    "Januar", "Februar", "März", "April", "Mai", "Juni",
-    "Juli", "August", "September", "Oktober", "November", "Dezember",
+    "Januar",
+    "Februar",
+    "März",
+    "April",
+    "Mai",
+    "Juni",
+    "Juli",
+    "August",
+    "September",
+    "Oktober",
+    "November",
+    "Dezember",
 ]
 
 
@@ -1621,9 +1657,7 @@ def _load_extra_climate_normals() -> dict[str, dict[str, list[float]]]:
         logger.warning("climate_normals_file_missing", path=path)
         return {}
     except json.JSONDecodeError as exc:
-        logger.warning(
-            "climate_normals_file_invalid", path=path, error=str(exc)[:80]
-        )
+        logger.warning("climate_normals_file_invalid", path=path, error=str(exc)[:80])
         return {}
 
     if not isinstance(raw, dict):
@@ -1637,9 +1671,7 @@ def _load_extra_climate_normals() -> dict[str, dict[str, list[float]]]:
         entry: dict[str, list[float]] = {}
         for key in ("temp_mean", "precip_mm", "sunshine_h"):
             v = values.get(key)
-            if isinstance(v, list) and len(v) == 12 and all(
-                isinstance(x, int | float) for x in v
-            ):
+            if isinstance(v, list) and len(v) == 12 and all(isinstance(x, int | float) for x in v):
                 entry[key] = [float(x) for x in v]
         if entry:
             cleaned[station.upper()] = entry
@@ -1760,8 +1792,7 @@ collections/ch.meteoschweiz.ogd-nbcn/items/{station}/assets/{param}.txt
 
     for ms_param, our_field in _CLIMATE_PARAM_ORDER:
         url = (
-            template
-            .replace("{station}", station_code.lower())
+            template.replace("{station}", station_code.lower())
             .replace("{STATION}", station_code.upper())
             .replace("{param}", ms_param)
         )
@@ -1778,9 +1809,7 @@ collections/ch.meteoschweiz.ogd-nbcn/items/{station}/assets/{param}.txt
             return resp.text
 
         try:
-            text = await _cached(
-                "stac_climate", (url, station_code, ms_param), _do_fetch
-            )
+            text = await _cached("stac_climate", (url, station_code, ms_param), _do_fetch)
         except Exception as exc:
             logger.warning(
                 "climate_runtime_fetch_failed",
@@ -1942,7 +1971,9 @@ async def meteo_current(params: CurrentInput, ctx: Context | None = None) -> str
     logger.info("tool_invoked", tool="meteo_current", station=code)
 
     if not station_info:
-        logger.info("tool_input_invalid", tool="meteo_current", reason="unknown_station", station=code)
+        logger.info(
+            "tool_input_invalid", tool="meteo_current", reason="unknown_station", station=code
+        )
         known = ", ".join(sorted(SMN_STATIONS.keys()))
         return (
             f"Fehler: Station '{code}' nicht in der eingebetteten Liste.\n"
@@ -2060,7 +2091,12 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
     Returns:
         str: Tages- (und optional Stunden-)Prognose mit Wettercode und Planung.
     """
-    logger.info("tool_invoked", tool="meteo_forecast", days=params.days, has_coords=params.latitude is not None)
+    logger.info(
+        "tool_invoked",
+        tool="meteo_forecast",
+        days=params.days,
+        has_coords=params.latitude is not None,
+    )
     async with _http_client(ctx) as client:
         # Koordinaten bestimmen
         if params.latitude is not None and params.longitude is not None:
@@ -2157,7 +2193,11 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
         t_mn = f"{t_min[i]:.1f} °C" if i < len(t_min) and t_min[i] is not None else "–"
         t_mx = f"{t_max[i]:.1f} °C" if i < len(t_max) and t_max[i] is not None else "–"
         pr = f"{precip[i]:.1f} mm" if i < len(precip) and precip[i] is not None else "–"
-        pr_p = f"{int(precip_prob[i])} %" if i < len(precip_prob) and precip_prob[i] is not None else "–"
+        pr_p = (
+            f"{int(precip_prob[i])} %"
+            if i < len(precip_prob) and precip_prob[i] is not None
+            else "–"
+        )
         w = f"{wind[i]:.0f} km/h" if i < len(wind) and wind[i] is not None else "–"
         uv_val = f"{uv[i]:.0f}" if i < len(uv) and uv[i] is not None else "–"
         lines.append(f"| {date} | {wmo_desc} | {t_mn} | {t_mx} | {pr} | {pr_p} | {w} | {uv_val} |")
@@ -2219,9 +2259,7 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
     },
 )
 @_traced_tool("meteo_school_check")
-async def meteo_school_check(
-    params: SchoolCheckInput, ctx: Context | None = None
-) -> str:
+async def meteo_school_check(params: SchoolCheckInput, ctx: Context | None = None) -> str:
     """<use_case>
     Aggregiert Geocoding + 7-Tage-Forecast + Schwellenwert-Check zu einer
     Ampel-Bewertung (🟢/🟡/🔴) für Schulveranstaltungen im Freien. Ein
@@ -2265,17 +2303,12 @@ async def meteo_school_check(
                 endpoint="geocoding",
                 error_type=exc.__class__.__name__,
             )
-            return (
-                f"Fehler beim Geokodieren von '{params.location}': "
-                f"{_sanitize_error(exc)}"
-            )
+            return f"Fehler beim Geokodieren von '{params.location}': {_sanitize_error(exc)}"
 
         if ctx is not None:
             await ctx.info(f"Lade 7-Tage-Forecast für {display_name}")
         try:
-            data, prov = await _fetch_open_meteo_forecast(
-                client, lat, lon, 7, hourly=False
-            )
+            data, prov = await _fetch_open_meteo_forecast(client, lat, lon, 7, hourly=False)
         except Exception as exc:
             logger.warning(
                 "upstream_failed",
@@ -2367,9 +2400,7 @@ async def meteo_school_check(
     },
 )
 @_traced_tool("meteo_climate_normals")
-async def meteo_climate_normals(
-    params: ClimateNormalsInput, ctx: Context | None = None
-) -> str:
+async def meteo_climate_normals(params: ClimateNormalsInput, ctx: Context | None = None) -> str:
     """<use_case>
     Monatliche 30-Jahres-Klimanormwerte (Temperatur ∅, Niederschlag,
     Sonnenstunden) für eine MeteoSwiss-Station. Referenz für «typisches
@@ -2404,9 +2435,7 @@ async def meteo_climate_normals(
 
     if not station_info:
         known = ", ".join(sorted(SMN_STATIONS.keys()))
-        return (
-            f"Fehler: Station '{code}' nicht bekannt. Gültige Kürzel: {known}"
-        )
+        return f"Fehler: Station '{code}' nicht bekannt. Gültige Kürzel: {known}"
 
     if not normals:
         # Runtime-Fallback: konfigurierbare URL via MCP_CLIMATE_NORMALS_URL_TEMPLATE
@@ -2469,7 +2498,7 @@ async def meteo_climate_normals(
     if temp and precip and sun:
         lines += [
             "|-------|-------------|-------------------|-----------------|",
-            f"| **Jahr** | **{sum(temp)/12:.1f}** | **{sum(precip)}** | **{sum(sun)}** |",
+            f"| **Jahr** | **{sum(temp) / 12:.1f}** | **{sum(precip)}** | **{sum(sun)}** |",
         ]
 
     lines += [
@@ -2581,9 +2610,7 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
                 error_type=exc.__class__.__name__,
             )
             if ctx is not None:
-                await ctx.warning(
-                    f"Warnings-API-Fetch fehlgeschlagen: {_sanitize_error(exc)}"
-                )
+                await ctx.warning(f"Warnings-API-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
     else:
         # MeteoSwiss-App-Backend: PLZ-Liste je nach Filter bestimmen.
         if plz_query:
@@ -2601,9 +2628,7 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
         if plz_list:
             try:
                 async with _http_client(ctx) as client:
-                    app_warnings, app_failures = await _collect_app_warnings(
-                        client, plz_list, lang
-                    )
+                    app_warnings, app_failures = await _collect_app_warnings(client, plz_list, lang)
                 logger.info(
                     "warnings_app_ok",
                     count=len(app_warnings),
@@ -2792,9 +2817,7 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
         else:
             payload["quelle"] = "meteoswiss_app_api"
             payload["warnings_api_active"] = True
-            payload["aktive_warnungen"] = [
-                w for w in app_warnings if not w.get("outlook")
-            ]
+            payload["aktive_warnungen"] = [w for w in app_warnings if not w.get("outlook")]
             payload["vorausschau"] = [w for w in app_warnings if w.get("outlook")]
             if not (plz_query or canton_filter):
                 payload["zusammenfassung"] = _aggregate_warnings_by_type(
@@ -2963,9 +2986,7 @@ def build_transport_security(host: str, port: int):
     # Transport-Prüfung passieren, sonst weist der Server genau die
     # Browser-Clients ab, die CORS erlaubt. ``*`` ist nicht ausdrückbar
     # (Origins werden literal verglichen) und wird nicht kopiert.
-    origins = {
-        o for o in _parse_origins(os.environ.get("MCP_ALLOWED_ORIGINS", "")) if o != "*"
-    }
+    origins = {o for o in _parse_origins(os.environ.get("MCP_ALLOWED_ORIGINS", "")) if o != "*"}
     origins |= {f"http://{h}" for h in hosts}
     return TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
@@ -3039,21 +3060,15 @@ def _build_http_app(host: str = "127.0.0.1", port: int = 8000):
                     return await call_next(request)
                 presented = (
                     request.headers.get("x-api-key")
-                    or request.headers.get("authorization", "")
-                    .removeprefix("Bearer ")
-                    .strip()
+                    or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
                 )
-                if not presented or not _secrets.compare_digest(
-                    presented, api_key
-                ):
+                if not presented or not _secrets.compare_digest(presented, api_key):
                     logger.warning(
                         "auth_rejected",
                         path=request.url.path,
                         has_credential=bool(presented),
                     )
-                    return JSONResponse(
-                        {"error": "unauthorized"}, status_code=401
-                    )
+                    return JSONResponse({"error": "unauthorized"}, status_code=401)
                 return await call_next(request)
 
         app.add_middleware(_ApiKeyMiddleware)
