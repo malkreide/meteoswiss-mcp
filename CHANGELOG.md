@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Hinzugefuegt — die Fixtures sind aufgezeichnet, nicht mehr ausgedacht
+
+**`scripts/record_fixtures.py`** zeichnet von den drei Quellen auf — STAC
+(`data.geo.admin.ch`), der MeteoSwiss-App-API und Open-Meteo — und schreibt
+`tests/fixtures/*` samt `PROVENANCE.md` mit Quelle, **Aufzeichnungsdatum**,
+Auswahlregel und SHA-256 je Datei. Ohne Datum ist «aufgezeichnet» nach zwei
+Jahren von «ausgedacht» nicht mehr zu unterscheiden.
+
+**Der wichtigste Befund betrifft den Asset-Selektor.** `_select_smn_now_asset`
+lehnt bewusst jeden Fallback ab — im selben Asset-Dict liegen Tages-, Monats-,
+Jahres- und Jahrzehnt-Historien, und «die als aktuelle Beobachtung auszugeben
+waere schlimmer als ein sauberer Fehler», sagt sein Docstring. Die
+handgeschriebene Fixture fuehrte **vier** Assets; die Quelle liefert **16**,
+darunter `ogd-smn_klo_h_historical_1980-1989.csv` bis `…_2020-2029.csv`. Der
+Selektor wurde also nie gegen die Ablenker geprueft, gegen die es ihn gibt. Das
+STAC-Item wird deshalb **vollstaendig** aufgezeichnet, und das Skript bricht ab,
+wenn die Quelle eines Tages keine Ablenker mehr liefert — dann prueft der
+Selektor-Test naemlich nichts mehr.
+
+**Die 10-Minuten-CSV hatte 7 Spalten, die Quelle hat 34** — und leere Zellen,
+die die Vorgaengerin gar nicht kannte. Der Renderer geht damit korrekt um: Er
+ueberspringt leere Werte, statt zu stuerzen oder eine Null zu erfinden. Gemessen
+am 2026-08-07 fuer KLO liegt allerdings keine der leeren Zellen in den neun
+Parametern, die der Server rendert — die stille Auslassung tritt hier also gar
+nicht ein. Das steht hier als Messung, nicht als Befund.
+
+Erwartungen werden durchgehend **aus der Fixture abgeleitet** statt
+hingeschrieben. Bei Wetterdaten ist das keine Stilfrage: Eine feste Temperatur
+waere beim naechsten Aufzeichnen falsch, ohne dass sich etwas Geprueftes
+geaendert haette.
+
+**Kein Befund am Produktivcode.** Wie in `zurich-opendata-mcp` und
+`swiss-statistics-mcp` hat das Aufzeichnen hier nichts Kaputtes freigelegt.
+
+**Am Rande, nicht behoben:** Die Live-Tests gegen den Geocoding-Dienst fallen
+wechselnd mit `ConnectTimeout` aus — mal `test_live_school_check`, mal
+`test_live_geocode_leutschenbach`, einzeln laufen sie durch. Eine fluechtige
+Netzbedingung gegen eine Fremdquelle, nicht Gegenstand dieses PRs. Der PR-Lauf
+der CI fuehrt `-m "not live"` und ist davon nicht betroffen.
+
+Der Rahmen dazu steht im Skill [`mcp-data-fidelity`](https://github.com/malkreide/mcp-data-fidelity-skill)
+unter Regel 5 und im Katalog-Check `OPS-009`.
+
+
 ### Fixed
 
 - **Streamable-HTTP wies unter jedem echten Hostnamen mit 421 ab (SEC-005).**
