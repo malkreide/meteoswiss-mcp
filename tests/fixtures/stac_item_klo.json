@@ -1,0 +1,171 @@
+{
+  "id": "klo",
+  "collection": "ch.meteoschweiz.ogd-smn",
+  "type": "Feature",
+  "stac_version": "1.0.0",
+  "geometry": {
+    "type": "Point",
+    "coordinates": [
+      8.535961,
+      47.479611
+    ]
+  },
+  "bbox": [
+    8.535961,
+    47.479611,
+    8.535961,
+    47.479611
+  ],
+  "properties": {
+    "datetime": "2026-08-07T04:00:18.765631Z",
+    "title": "Zürich / Kloten (KLO)",
+    "created": "2025-03-28T10:00:44.291529Z",
+    "updated": "2026-08-07T19:10:37.464507Z"
+  },
+  "stac_extensions": [
+    "https://stac-extensions.github.io/timestamps/v1.1.0/schema.json"
+  ],
+  "links": [
+    {
+      "rel": "self",
+      "href": "https://data.geo.admin.ch/api/stac/v1/collections/ch.meteoschweiz.ogd-smn/items/klo"
+    },
+    {
+      "rel": "root",
+      "href": "https://data.geo.admin.ch/api/stac/v1/"
+    },
+    {
+      "rel": "parent",
+      "href": "https://data.geo.admin.ch/api/stac/v1/collections/ch.meteoschweiz.ogd-smn"
+    },
+    {
+      "rel": "collection",
+      "href": "https://data.geo.admin.ch/api/stac/v1/collections/ch.meteoschweiz.ogd-smn"
+    },
+    {
+      "rel": "alternate",
+      "title": "STAC Browser",
+      "type": "text/html",
+      "href": "https://data.geo.admin.ch/browser/index.html#/collections/ch.meteoschweiz.ogd-smn/items/klo"
+    },
+    {
+      "href": "https://www.meteoswiss.admin.ch/services-and-publications/applications/measurement-values-and-measuring-networks.html#param=messnetz-automatisch&station=KLO",
+      "rel": "about",
+      "title": "Automatic weather stations - Measurement values"
+    }
+  ],
+  "assets": {
+    "ogd-smn_klo_d_historical.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_d_historical.csv",
+      "created": "2025-04-30T14:28:59.317689Z",
+      "updated": "2026-02-18T19:31:47.065344Z",
+      "file:checksum": "1220858461a0c9ac82508dce2098aa2ba62a7dce8ae73e1b73c88a99b03ad9f1c2ba"
+    },
+    "ogd-smn_klo_d_recent.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_d_recent.csv",
+      "created": "2025-04-04T10:12:01.087273Z",
+      "updated": "2026-08-07T11:19:24.480152Z",
+      "file:checksum": "1220d5a9376842e13800342dc0a75abafd7754d2c773c08661182a33c7d3b51904d2"
+    },
+    "ogd-smn_klo_h_historical_1980-1989.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_h_historical_1980-1989.csv",
+      "created": "2025-04-30T14:28:58.936625Z",
+      "updated": "2026-02-18T19:31:13.532942Z",
+      "file:checksum": "122015c1019e28ce74bff1349ae8af1d1b35454738666040dcbd4d1ccd35629e4e15"
+    },
+    "ogd-smn_klo_h_historical_1990-1999.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_h_historical_1990-1999.csv",
+      "created": "2025-04-30T14:29:07.272402Z",
+      "updated": "2026-02-18T19:31:47.067228Z",
+      "file:checksum": "12202a9e24833e21619e0f2ef9f4efa96836c0a02c9dc2f821fcc6c3a23f564bd5e3"
+    },
+    "ogd-smn_klo_h_historical_2000-2009.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_h_historical_2000-2009.csv",
+      "created": "2025-04-30T14:29:04.647018Z",
+      "updated": "2026-02-18T19:31:14.763227Z",
+      "file:checksum": "122073f468ec37da3e621f51c89a217e8cca8c940d7aebc8e995652ee43b6fca98f2"
+    },
+    "ogd-smn_klo_h_historical_2010-2019.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_h_historical_2010-2019.csv",
+      "created": "2025-04-30T14:30:56.186991Z",
+      "updated": "2026-02-18T19:31:46.866921Z",
+      "file:checksum": "12205163f2ab0d09f2bf60bfbce37b81cc04d0b7215167d7b3c8b80cbdd2dd84ff4f"
+    },
+    "ogd-smn_klo_h_historical_2020-2029.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_h_historical_2020-2029.csv",
+      "created": "2025-04-30T14:29:07.002867Z",
+      "updated": "2026-02-18T19:31:47.254353Z",
+      "file:checksum": "1220f909b81e4d78e8f6c998fd8d1a50e48599890c8835f187524445a2d9d2eea9c9"
+    },
+    "ogd-smn_klo_h_now.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_h_now.csv",
+      "created": "2025-04-04T10:04:14.991032Z",
+      "updated": "2026-08-07T18:29:40.854522Z",
+      "file:checksum": "122090cebc8d6b43e414629df755c1d1bb911edc8a12b1551bb598553500f7ee619a"
+    },
+    "ogd-smn_klo_h_recent.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_h_recent.csv",
+      "created": "2025-04-04T10:16:16.549058Z",
+      "updated": "2026-08-07T02:13:55.316910Z",
+      "file:checksum": "12209fccc0d91ace107bcbd6dae4106cafdaacde7a3da63edc5a043463549b9d2e32"
+    },
+    "ogd-smn_klo_m.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_m.csv",
+      "created": "2025-04-17T09:37:24.385141Z",
+      "updated": "2026-08-05T04:52:43.775444Z",
+      "file:checksum": "1220b96cebffeca971b75c0a81a63f290723a9cb66d8cb20c479a138b17f4bcdd6cf"
+    },
+    "ogd-smn_klo_t_historical_2000-2009.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_t_historical_2000-2009.csv",
+      "created": "2025-04-30T14:34:51.218689Z",
+      "updated": "2026-02-18T19:32:51.032480Z",
+      "file:checksum": "1220ad076a7948bc9da482791619911a819949c1db4d2c4842018d7ec7a96b9e0147"
+    },
+    "ogd-smn_klo_t_historical_2010-2019.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_t_historical_2010-2019.csv",
+      "created": "2025-04-30T14:37:05.705179Z",
+      "updated": "2026-02-18T19:32:52.031784Z",
+      "file:checksum": "122006c410c017c1a7b6c7734f43b30edfb608c0d1885b37a8eb1172731834bb15e5"
+    },
+    "ogd-smn_klo_t_historical_2020-2029.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_t_historical_2020-2029.csv",
+      "created": "2025-04-30T14:37:05.843732Z",
+      "updated": "2026-02-18T19:34:50.017701Z",
+      "file:checksum": "122067490e2262771d610d1909c417e28b293bfce7d97be7d9858a0698d5811b8e2b"
+    },
+    "ogd-smn_klo_t_now.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_t_now.csv",
+      "created": "2025-04-04T10:04:17.138120Z",
+      "updated": "2026-08-07T19:10:37.464507Z",
+      "file:checksum": "12202afeb6e35a4eef1876ea9feb6aa0b601aef57e4050ad68ac326211483b2fb09e"
+    },
+    "ogd-smn_klo_t_recent.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_t_recent.csv",
+      "created": "2025-04-04T10:20:28.839123Z",
+      "updated": "2026-08-07T02:13:55.126063Z",
+      "file:checksum": "1220c6c446e630fd7391811e1f1ffa37548874a9a10965e44004ab9f0e43f7eaa054"
+    },
+    "ogd-smn_klo_y.csv": {
+      "type": "text/csv",
+      "href": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo/ogd-smn_klo_y.csv",
+      "created": "2025-04-17T09:37:31.909257Z",
+      "updated": "2026-06-25T04:30:03.056490Z",
+      "file:checksum": "12204b9d8ca079110387a86965004996326e4e103cd9cdab41728b0a35e68d812819"
+    }
+  }
+}

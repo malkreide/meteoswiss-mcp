@@ -14,6 +14,7 @@ import json
 
 import httpx
 import pytest
+from fixture_data import fixture_json, fixture_text
 
 from meteoswiss_mcp.server import (
     CLIMATE_NORMALS,
@@ -211,25 +212,17 @@ _STAC_ASSET_BASE = "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/klo"
 # Ausschnitt aus dem echten STAC-Item von `klo`: die Granularität steckt im
 # Dateinamen (`_t_now`), nicht im Pfad — und Tages-/Historik-Assets liegen im
 # selben Dict.
-_STAC_ITEM_KLO = {
-    "id": "klo",
-    "assets": {
-        "ogd-smn_klo_d_historical.csv": {
-            "href": f"{_STAC_ASSET_BASE}/ogd-smn_klo_d_historical.csv"
-        },
-        "ogd-smn_klo_h_now.csv": {"href": f"{_STAC_ASSET_BASE}/ogd-smn_klo_h_now.csv"},
-        "ogd-smn_klo_t_recent.csv": {
-            "href": f"{_STAC_ASSET_BASE}/ogd-smn_klo_t_recent.csv"
-        },
-        "ogd-smn_klo_t_now.csv": {"href": f"{_STAC_ASSET_BASE}/ogd-smn_klo_t_now.csv"},
-    },
-}
+# Aufgezeichnet statt ausgedacht — VOLLSTAENDIG, und das ist der Punkt:
+# `_select_smn_now_asset` lehnt bewusst jeden Fallback ab, weil im selben
+# Asset-Dict Tages-, Monats-, Jahres- und Jahrzehnt-Historien liegen. Die
+# erfundene Vorgaengerin fuehrte vier Assets — die Quelle liefert 16. Der
+# Selektor wurde also nie gegen die Ablenker geprueft, gegen die es ihn gibt.
+# Herkunft und Datum in tests/fixtures/PROVENANCE.md.
+_STAC_ITEM_KLO = fixture_json("stac_item_klo.json")
 
-_SMN_NOW_CSV = (
-    "station_abbr;reference_timestamp;tre200s0;ure200s0;prestas0;pp0qnhs0;rre150z0\n"
-    "KLO;30.07.2026 13:10;21.4;57.3;970.0;1020.6;0\n"
-    "KLO;30.07.2026 13:20;21.8;56.9;970.1;1020.7;0\n"
-)
+# Die echte 10-Minuten-CSV: 34 Spalten statt der sieben der Vorgaengerin, und
+# mit leeren Zellen, wie die Quelle sie liefert.
+_SMN_NOW_CSV = fixture_text("smn_now.csv")
 
 
 class TestSmnStacItemUrl:
@@ -298,10 +291,23 @@ async def test_meteo_current_end_to_end_markdown():
         r.get(f"{_STAC_ASSET_BASE}/ogd-smn_klo_t_now.csv").respond(text=_SMN_NOW_CSV)
         result = await meteo_current(CurrentInput(station="KLO"))
 
+    # Erwartungen aus der Fixture abgeleitet, nicht hingeschrieben: Es sind
+    # Wetterwerte, und eine feste Temperatur waere beim naechsten Aufzeichnen
+    # falsch, ohne dass sich etwas Geprueftes geaendert haette.
+    import csv as _csv
+    import io as _io
+
+    _rows = list(_csv.DictReader(_io.StringIO(_SMN_NOW_CSV), delimiter=";"))
+    _latest = _rows[-1]
+
     assert "⚠️" not in result  # kein Fallback-Pfad
-    assert "21.8" in result  # jüngste Zeile, nicht die vorletzte
-    assert "30.07.2026 13:20" in result  # reference_timestamp, nicht "–"
-    assert "1020.7" in result  # QNH-Luftdruck wird gerendert
+    assert _latest["tre200s0"] in result  # jüngste Zeile
+    assert _latest["reference_timestamp"] in result  # nicht "–"
+    assert _rows[-2]["reference_timestamp"] not in result, (
+        "die vorletzte Zeile steht in der Ausgabe — es wird nicht die juengste "
+        "gerendert"
+    )
+    assert _latest["pp0qnhs0"] in result  # QNH-Luftdruck wird gerendert
 
 
 @pytest.mark.asyncio
@@ -329,7 +335,13 @@ async def test_meteo_current_json_provenance_url():
 
     payload = json.loads(result)
     assert payload["provenance"]["data_source_url"].endswith("/items/klo")
-    assert len(payload["payload"]["beobachtungen"]) == 2
+    # Zahl aus der Fixture: Das Aufzeichnungsskript behaelt die letzten N
+    # Zeilen, und N steht in PROVENANCE.md — nicht hier.
+    import csv as _csv
+    import io as _io
+
+    _n = len(list(_csv.DictReader(_io.StringIO(_SMN_NOW_CSV), delimiter=";")))
+    assert len(payload["payload"]["beobachtungen"]) == _n
 
 
 @pytest.mark.asyncio
