@@ -32,6 +32,21 @@ jobs:
       - name: Lint
         run: ruff check src/ tests/
 
+      # Zweites, eigenstaendiges Gate. `ruff check` belegt kein Format: ein
+      # gruener Linter neben einem roten `ruff format --check` ist ein
+      # gewoehnlicher Zustand, kein Widerspruch — die beiden pruefen
+      # Verschiedenes. Der Regelsatz oben steht in `select`, hier ist das
+      # Ergebnis selbst das Kriterium.
+      #
+      # Eigener Schritt, damit im Log steht, welches der beiden Gates
+      # ausgeloest hat. Zusammengezogen waere die Antwort auf «warum ist die
+      # CI rot» eine Suche statt eine Zeile.
+      #
+      # Kein `--line-length`: die Breite entscheidet die `[tool.ruff]`-Sektion
+      # in pyproject.toml, nicht dieser Workflow.
+      - name: Format
+        run: ruff format --check src/ tests/
+
       - name: Guard — no print() in src/ (stdio-Transport-Pflicht, OBS-004)
         run: |
           if grep -rnE '^\s*print\s*\(' src/; then
