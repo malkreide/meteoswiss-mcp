@@ -20,11 +20,16 @@ Please include:
 ## Pull Requests
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feat/your-feature`
-3. Make your changes and add tests
-4. Ensure all tests pass: `PYTHONPATH=src pytest tests/ -m "not live"`
-5. Commit using [Conventional Commits](https://www.conventionalcommits.org/): `feat: add new tool`
-6. Push and open a Pull Request against `main`
+2. Set up the dev environment and the local gates:
+   `pip install -e ".[dev]" && pre-commit install`
+   The hooks run the same checks as CI, using the `ruff` version pinned in
+   `pyproject.toml` — that pin is the single source of truth, and the first
+   hook fails if the `ruff` on your `PATH` is a different one.
+3. Create a feature branch: `git checkout -b feat/your-feature`
+4. Make your changes and add tests
+5. Ensure all tests pass: `PYTHONPATH=src pytest tests/ -m "not live"`
+6. Commit using [Conventional Commits](https://www.conventionalcommits.org/): `feat: add new tool`
+7. Push and open a Pull Request against `main`
 
 ---
 

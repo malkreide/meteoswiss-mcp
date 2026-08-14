@@ -1,0 +1,78 @@
+# Geplante Live-Tests gegen die echten Quellen (DRIFT-005).
+#
+# Die Unit-Tests laufen gegen aufgezeichnete Antworten und koennen deshalb
+# nicht bemerken, wenn eine Quelle ihr Format aendert. Genau das ist am
+# 3.8.2026 passiert: die Quelle wechselte die Schreibweise ihrer Kopfzeile,
+# vier von sechs Datensaetzen waren produktiv kaputt — und alle Unit-Tests
+# blieben gruen. Die `-m live`-Tests fragen die Quellen wirklich ab; ohne
+# diesen Workflow liefen sie nirgends, weil die CI sie per `-m "not live"`
+# ausschliesst.
+#
+# Achtung: `schedule` greift nur auf dem Default-Branch. Aenderungen an dieser
+# Datei werden erst nach dem Merge nach `main` wirksam. Vorher per
+# `workflow_dispatch` von Hand ausloesen.
+
+name: Live Tests
+
+on:
+  schedule:
+    # Taeglich 05:17 UTC. Nicht zur vollen Stunde: dann sind die
+    # GitHub-Runner-Queues am vollsten und geplante Jobs verzoegern sich.
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+# Ein veralteter Lauf, der noch gegen den alten Stand testet, sagt nichts.
+concurrency:
+  group: live-tests
+  cancel-in-progress: true
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    # Externe Endpunkte koennen haengen statt zu antworten. Ohne Deckel
+    # blockiert ein einzelner Aufruf den Job bis zum Runner-Limit.
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Produktions-Python (siehe ARG PYTHON_VERSION im Dockerfile) — die
+      # Matrix aus ci.yml waere hier vervierfachte Last auf fremden APIs
+      # ohne zusaetzliche Aussage.
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      # Ein Wiederholungslauf, bewusst nur einer. Ein einzelner Netzaussetzer
+      # soll keinen roten Lauf erzeugen — ein roter Lauf, dem niemand glaubt,
+      # ist so wenig wert wie gar keiner. Ein Formatwechsel an der Quelle
+      # ueberlebt die Wiederholung dagegen und wird gemeldet.
+      - name: Run live tests
+        run: |
+          PYTHONPATH=src pytest tests/ -m live && exit 0
+          echo "::warning::Erster Lauf rot — einmal wiederholen, um einen Netzaussetzer auszuschliessen."
+          sleep 60
+          PYTHONPATH=src pytest tests/ -m live
+
+      - name: Erklaerung im Job-Summary, wenn rot
+        if: failure()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Live-Tests rot
+
+          Zweimal rot, also kein Netzaussetzer. Der Ablauf steht in `CLAUDE.md`:
+
+          **Erst die Quelle abfragen, dann einordnen — nicht aus der
+          Fehlermeldung schliessen.** «Nicht gefunden» hiess hier schon einmal
+          nicht, dass der Datensatz weg war, sondern dass die Quelle die
+          Schreibweise ihrer Kopfzeile gewechselt hatte.
+
+          Wenn sich das Format der Quelle geaendert hat, gehoert die neue
+          Antwort als Fixture aufgezeichnet (`scripts/record_fixtures.py`,
+          mit Aufnahmedatum) — sonst faellt derselbe Bruch beim naechsten Mal
+          wieder nur hier auf und nicht in den Unit-Tests.
+          EOF
