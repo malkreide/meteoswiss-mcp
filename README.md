@@ -328,11 +328,15 @@ meteoswiss-mcp
 # Unit tests (no network)
 PYTHONPATH=src pytest tests/ -m "not live" -v
 
-# Live tests (real APIs)
+# Live tests (real APIs) — also run daily at 05:17 UTC via
+# .github/workflows/live-tests.yml, so a format change upstream
+# surfaces even though the unit tests stay green.
 PYTHONPATH=src pytest tests/ -m live -v
 
-# Linting
+# Linting — install the local gates once with `pre-commit install`
+# to run these (and the CI guards) before every commit.
 ruff check src/ tests/
+ruff format --check src/ tests/
 ```
 
 ---

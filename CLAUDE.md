@@ -46,10 +46,14 @@ Ein Codex-Review auf einem PR wird beantwortet oder behoben, nie ignoriert.
 ## Dieses Repo
 
 **ruff:** `ruff==0.16.1`, gepinnt in `pyproject.toml` unter
-`[project.optional-dependencies] dev`. Die CI installiert daraus
-(`pip install -e ".[dev]"`), pinnt selbst nichts. Eine
-`.pre-commit-config.yaml` existiert nicht — der Pin steht nur an dieser
-einen Stelle (Befund 1).
+`[project.optional-dependencies] dev`. Das ist der einzige Pin im Repo — CI
+und `.pre-commit-config.yaml` installieren bzw. rufen daraus, keiner von
+beiden nennt eine eigene Version. Deshalb sind die Hooks `repo: local` /
+`language: system` und nicht `ruff-pre-commit` (das bräuchte ein zweites
+`rev:`). Dass das ruff im PATH wirklich der Pin ist, prüft
+`scripts/check_ruff_pin.py` als erster Hook.
+
+Einrichten: `pip install -e ".[dev]" && pre-commit install`
 
 **Gate-Befehle, wörtlich aus `.github/workflows/ci.yml`** (Matrix: Python
 3.11 / 3.12 / 3.13):
@@ -63,10 +67,13 @@ python scripts/tool_hashes.py --write    # danach: git diff --exit-code tool-has
 ```
 
 `ruff check` und `ruff format --check` sind zwei eigenständige Gates; grün
-beim einen sagt nichts über das andere. Der Hash-Guard läuft nur auf 3.13.
+beim einen sagt nichts über das andere. Der Hash-Guard läuft nur auf 3.13,
+weil die Pydantic-Serialisierung versionsabhängig ist — auf 3.11 weicht der
+Hash ab, ohne dass etwas kaputt wäre. `pre-commit` fährt dieselben fünf
+Gates; nur `scripts/` ist von keinem der beiden ruff-Gates erfasst.
 
-**Live-Tests:** kein geplanter Workflow. `.github/workflows/` kennt nur
-`push`/`pull_request` (ci.yml) und `release` (publish.yml) — keinen
-`schedule`/cron-Trigger. Die 6 `@pytest.mark.live`-Tests in
-`tests/test_server.py` werden per `-m "not live"` ausgeschlossen und sonst
-nie gefahren (Befund 2, DRIFT-005).
+**Live-Tests:** `.github/workflows/live-tests.yml`, täglich 05:17 UTC plus
+`workflow_dispatch`, fährt `PYTHONPATH=src pytest tests/ -m live` auf 3.13
+(DRIFT-005). Ein Fehlschlag wird einmal wiederholt — gegen Netzaussetzer,
+nicht gegen echte Brüche. `schedule` greift nur auf `main`; auf einem Branch
+lässt sich der Workflow nur von Hand auslösen.

@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Hinzugefuegt — die Gates laufen jetzt auch lokal und die Live-Tests ueberhaupt
+
+**`.pre-commit-config.yaml`** faehrt dieselben fuenf Gates wie
+`.github/workflows/ci.yml`. Alle Hooks sind `repo: local` mit
+`language: system` — ein `ruff-pre-commit`-Repo braeuchte ein eigenes `rev:`,
+also eine zweite ruff-Version neben dem Pin in `pyproject.toml`. Zwei Pins
+laufen auseinander, und dann meldet das lokale Gate etwas anderes als die CI.
+So bleibt `ruff==0.16.1` der einzige Pin im Repo.
+
+Der Preis dafuer ist, dass `language: system` nimmt, was im PATH liegt.
+**`scripts/check_ruff_pin.py`** gleicht das aus: er liest den Pin aus
+`pyproject.toml`, vergleicht ihn mit `ruff --version` und bricht als erster
+Hook mit einer Anleitung ab, wenn beides auseinanderfaellt. Beim Bau dieser
+Aenderung hat er sofort zugeschlagen — im PATH lag ruff 0.15.8.
+
+**`scripts/check_tool_hashes.py`** prueft den SEC-022-Snapshot ohne
+Seiteneffekt: verglichen wird gegen stdout des Generators, nicht via
+`--write`. Der bisherige CI-Weg schreibt die Datei und laesst sie im
+Fehlerfall geaendert liegen. Ausserhalb von Python 3.13 ueberspringt er
+sauber, weil der Hash an der Pydantic-Serialisierung haengt und dort
+verlaesslich abweicht, ohne dass etwas kaputt waere — ein Gate, das
+regelmaessig falsch anschlaegt, wird mit `--no-verify` umgangen und schuetzt
+danach gar nichts mehr.
+
+**`.github/workflows/live-tests.yml`** (DRIFT-005) faehrt taeglich um
+05:17 UTC `pytest tests/ -m live` auf Python 3.13, dazu `workflow_dispatch`
+fuer Laeufe von Hand. Die sechs `@pytest.mark.live`-Tests wurden bisher von
+keinem Workflow gefahren: die CI schliesst sie per `-m "not live"` aus, und
+einen `schedule`-Trigger gab es nicht. Genau diese Luecke ist die, durch die
+ein Formatwechsel an der Quelle produktiv durchschlaegt, waehrend alle
+Unit-Tests gruen bleiben. Ein roter Lauf wird genau einmal wiederholt — gegen
+einen Netzaussetzer, nicht gegen einen echten Bruch; ein roter Lauf, dem
+niemand glaubt, ist so wenig wert wie gar keiner.
+
 ### Hinzugefuegt — die Fixtures sind aufgezeichnet, nicht mehr ausgedacht
 
 **`scripts/record_fixtures.py`** zeichnet von den drei Quellen auf — STAC

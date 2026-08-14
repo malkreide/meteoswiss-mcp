@@ -1,0 +1,76 @@
+# Lokale Gates, die dieselben Befehle fahren wie .github/workflows/ci.yml.
+#
+# Alle Hooks sind `repo: local` mit `language: system`. Das ist der Punkt:
+# ein `repo: https://github.com/astral-sh/ruff-pre-commit` bräuchte hier ein
+# eigenes `rev:` — also eine zweite ruff-Version neben dem Pin in
+# pyproject.toml. Zwei Pins laufen irgendwann auseinander, und dann meldet das
+# lokale Gate etwas anderes als die CI. So gibt es genau einen Pin.
+#
+# Voraussetzung ist entsprechend eine installierte Dev-Umgebung:
+#     pip install -e ".[dev]"
+# Der erste Hook prüft genau das und bricht mit einer Anleitung ab, wenn das
+# ruff im PATH nicht der gepinnten Version entspricht.
+#
+# Installation:
+#     pre-commit install
+
+repos:
+  - repo: local
+    hooks:
+      # Muss zuerst laufen: schlägt er fehl, sind die Ergebnisse der beiden
+      # ruff-Hooks darunter nicht aussagekräftig für die CI.
+      - id: ruff-version-pin
+        name: ruff-Version entspricht dem Pin in pyproject.toml
+        entry: python3 scripts/check_ruff_pin.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # Spiegelt `ruff check src/ tests/` aus der CI.
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check
+        language: system
+        types_or: [python, pyi]
+        files: ^(src|tests)/
+
+      # Zweites, eigenstaendiges Gate — genau wie in der CI. `--check` statt
+      # `--fix`, damit lokal dasselbe passiert wie dort: melden, nicht still
+      # umschreiben. Formatieren dann bewusst mit `ruff format src/ tests/`.
+      - id: ruff-format-check
+        name: ruff format --check
+        entry: ruff format --check
+        language: system
+        types_or: [python, pyi]
+        files: ^(src|tests)/
+
+      # OBS-004: stdio-Transport vertraegt kein print() — stdout gehoert dem
+      # Protokoll. Logs gehen via structlog auf stderr.
+      - id: no-print-in-src
+        name: kein print() in src/ (OBS-004)
+        entry: >-
+          bash -c 'if grep -rnE "^\s*print\s*\(" src/; then
+          echo "Gefundenes print() in src/ — Logs muessen via structlog auf stderr gehen."; exit 1; fi'
+        language: system
+        pass_filenames: false
+        files: ^src/.*\.py$
+
+      # SEC-022: der Snapshot der Tool-Schemas. Vergessenes Nachziehen ist ein
+      # haeufiger Grund fuer eine rote CI, deren Ursache nicht im Diff steht.
+      #
+      # Zwei Feinheiten, beide notwendig:
+      #  1. Der Hash haengt an der Pydantic-JSON-Schema-Serialisierung und
+      #     damit an der Python-Version. Die CI prueft ihn deshalb nur auf 3.13.
+      #     Auf 3.11 gemessen weicht er ab — ein Hook, der dort verlaesslich
+      #     falschen Alarm gibt, wird nach dem zweiten Mal mit `--no-verify`
+      #     umgangen und schuetzt dann gar nichts mehr. Also: ausserhalb von
+      #     3.13 sauber ueberspringen und das auch sagen.
+      #  2. Verglichen wird gegen stdout, nicht via `--write`. Ein Hook, der
+      #     die Arbeitskopie anfasst, hinterlaesst bei Abbruch ein geaendertes
+      #     tool-hashes.json, das niemand angefasst hat.
+      - id: tool-hashes
+        name: tool-hashes.json ist aktuell (SEC-022, nur Python 3.13)
+        entry: python3 scripts/check_tool_hashes.py
+        language: system
+        pass_filenames: false
+        files: ^src/meteoswiss_mcp/.*\.py$
