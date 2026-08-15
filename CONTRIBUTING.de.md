@@ -58,6 +58,28 @@ Beim Hinzufügen neuer Datenquellen gilt das **No-Auth-First**-Prinzip: Phase 1 
 
 ---
 
+## Die Live-Suite: wann sie läuft, und wer ein rotes Ergebnis sieht
+
+**Kadenz:** täglich 05:17 UTC, dazu jederzeit von Hand über *Actions → Live Tests → Run
+workflow*. Siehe [`.github/workflows/live-tests.yml`](.github/workflows/live-tests.yml).
+
+**Wer es sieht:** **Niemand automatisch.** Ein Fehlschlag erzeugt hier *kein* Issue und keine
+Benachrichtigung — nur einen roten Lauf im Actions-Tab und eine Erklärung im
+Job-Summary. Wer den Tab nicht öffnet, erfährt nichts.
+
+Das ist die schwächste Stelle dieses Gates und bewusst so dokumentiert, statt
+sie zu beschönigen: Andere Server des Portfolios legen bei Rot ein Issue an. Der
+erste Lauf wird einmal wiederholt, bevor er rot meldet, damit ein einzelner
+Netzaussetzer keinen Fehlalarm erzeugt.
+
+**Ein roter Live-Lauf heisst nicht zwingend «unser Fehler».** Er heisst: Der
+Vertrag mit der Quelle hat sich geändert, oder die Quelle ist gerade aus. Beides
+gehört gesehen, nur das Erste gehört gefixt. Bitte den Lauf lesen, bevor der Job
+deaktiviert wird — so stirbt dieser Check, und er ist der einzige im Repo, der
+einer falschen Grundannahme über die MeteoSchweiz-Quellen widersprechen kann. Jeder andere Test
+prüft gegen eine Fixture, und die Fixture ist aus derselben Annahme geschrieben
+wie der Code.
+
 ## Lizenz
 
 Mit deinem Beitrag erklärst du dich einverstanden, dass deine Beiträge unter der [MIT-Lizenz](LICENSE) lizenziert werden.
