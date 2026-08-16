@@ -80,6 +80,19 @@ grep -rnE '^\s*print\s*\(' src/          # muss LEER sein (OBS-004)
 python scripts/tool_hashes.py --write    # danach: git diff --exit-code tool-hashes.json (SEC-022)
 ```
 
+**`scripts/` liegt ausserhalb jedes Gates — und das ist nicht theoretisch.**
+Der CI-Umfang ist `src/ tests/`, das pre-commit-`files:`-Muster ebenfalls
+`^(src|tests)/`. Nachgemessen: `scripts/ingest_climate_normals.py` würde von
+`ruff format` umgeschrieben, ist also heute schon unformatiert — gemeldet hat
+das nie jemand, weil es niemand prüft. Wer den Umfang erweitert, hat als
+ersten Lauf einen roten; das ist die Bereinigung, nicht der Fehler.
+
+**Es gibt kein Versions-Sync-Gate.** `scripts/` enthält `check_ruff_pin.py`,
+`check_tool_hashes.py`, `tool_hashes.py`, `ingest_climate_normals.py` und
+`record_fixtures.py` — kein `check_version_sync.py`. `pyproject.toml` und
+`server.json` stehen beide auf `0.6.1`, gehalten wird das von nichts. Der
+ruff-Pin ist hier vorbildlich gesichert, die Paketversion gar nicht.
+
 `ruff check` und `ruff format --check` sind zwei eigenständige Gates; grün
 beim einen sagt nichts über das andere. Der Hash-Guard läuft nur auf 3.13,
 weil die Pydantic-Serialisierung versionsabhängig ist — auf 3.11 weicht der
