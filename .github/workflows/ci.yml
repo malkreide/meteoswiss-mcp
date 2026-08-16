@@ -65,3 +65,6 @@ jobs:
             echo "::error::tool-hashes.json ist nicht mehr aktuell. Lokal 'python scripts/tool_hashes.py --write' ausführen, committen und re-pushen."
             exit 1
           fi
+
+      - name: Versions-Sync (pyproject ↔ server.json / README / src)
+        run: python scripts/check_version_sync.py
