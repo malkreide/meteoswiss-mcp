@@ -52,8 +52,8 @@ from pathlib import Path
 
 # Parameter-Code (MeteoSwiss) → unser JSON-Feld-Name
 PARAMETER_MAP = {
-    "tre200m0": "temp_mean",   # Lufttemperatur 2m, Monatsmittel °C
-    "rre150m0": "precip_mm",   # Niederschlag Monatssumme mm
+    "tre200m0": "temp_mean",  # Lufttemperatur 2m, Monatsmittel °C
+    "rre150m0": "precip_mm",  # Niederschlag Monatssumme mm
     "sre000m0": "sunshine_h",  # Sonnenscheindauer Monatssumme h
 }
 
@@ -61,32 +61,32 @@ PARAMETER_MAP = {
 # in src/meteoswiss_mcp/server.py). Wenn der Server um weitere Stationen erweitert
 # wird, hier ergänzen.
 STATION_NAME_TO_CODE = {
-    "Zürich / Kloten":              "KLO",
-    "Zürich / MeteoSchweiz":        "SMA",
-    "Zürich / Fluntern":            "SMA",   # Fluntern-Standort = SMA-Hauptsitz
-    "Zürich / Affoltern":           "REH",
-    "Wädenswil":                    "WAE",
-    "Aadorf / Tänikon":             "TAE",
-    "Bern / Zollikofen":            "BER",
-    "Interlaken":                   "INT",
-    "Basel / Binningen":            "BAS",
-    "Luzern":                       "LUZ",
-    "St. Gallen":                   "STG",
-    "Davos":                        "DAV",
-    "Chur":                         "CHU",
-    "Sion":                         "SIO",
-    "Lugano":                       "LUG",
-    "Genève / Cointrin":            "GVE",
-    "Payerne":                      "PUY",
-    "Jungfraujoch":                 "JUN",
-    "Säntis":                       "SAE",
-    "Pilatus":                      "PIL",
+    "Zürich / Kloten": "KLO",
+    "Zürich / MeteoSchweiz": "SMA",
+    "Zürich / Fluntern": "SMA",  # Fluntern-Standort = SMA-Hauptsitz
+    "Zürich / Affoltern": "REH",
+    "Wädenswil": "WAE",
+    "Aadorf / Tänikon": "TAE",
+    "Bern / Zollikofen": "BER",
+    "Interlaken": "INT",
+    "Basel / Binningen": "BAS",
+    "Luzern": "LUZ",
+    "St. Gallen": "STG",
+    "Davos": "DAV",
+    "Chur": "CHU",
+    "Sion": "SIO",
+    "Lugano": "LUG",
+    "Genève / Cointrin": "GVE",
+    "Payerne": "PUY",
+    "Jungfraujoch": "JUN",
+    "Säntis": "SAE",
+    "Pilatus": "PIL",
 }
 
 # Plausibilitäts-Ranges für die Schweiz (1991-2020 Klimanormen).
 PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
-    "temp_mean":  (-25.0, 30.0),
-    "precip_mm":  (0.0, 800.0),
+    "temp_mean": (-25.0, 30.0),
+    "precip_mm": (0.0, 800.0),
     "sunshine_h": (10.0, 400.0),
 }
 
@@ -168,9 +168,7 @@ def _normalize_period(p: str) -> str:
     return p.replace("-", "")
 
 
-def ingest_directory(
-    src: Path, period: str, lang: str
-) -> dict[str, dict[str, list[float]]]:
+def ingest_directory(src: Path, period: str, lang: str) -> dict[str, dict[str, list[float]]]:
     """Scant ein Verzeichnis und gibt {STATION_CODE: {param: [12 floats]}} zurück."""
     files = sorted(src.iterdir())
     relevant: list[tuple[Path, str]] = []
@@ -324,7 +322,9 @@ def main() -> int:
     elif args.input:
         if not args.param:
             p.error("--param ist im Einzeldatei-Modus erforderlich")
-        text = sys.stdin.read() if args.input == "-" else Path(args.input).read_text(encoding="utf-8")
+        text = (
+            sys.stdin.read() if args.input == "-" else Path(args.input).read_text(encoding="utf-8")
+        )
         per_station = parse_single_csv(text, args.param)
         canonical = PARAMETER_MAP[args.param]
         parsed = {}

@@ -26,23 +26,27 @@ repos:
         pass_filenames: false
         always_run: true
 
-      # Spiegelt `ruff check src/ tests/` aus der CI.
+      # Spiegelt `ruff check src/ tests/ scripts/` aus der CI. Das `files:`-
+      # Muster muss mitwandern, wenn der CI-Scope wandert — sonst meldet der
+      # Hook gruen, was die CI danach rot macht, und ein lokales Gate, das die
+      # CI nicht reproduziert, ist schlimmer als keines.
       - id: ruff-check
         name: ruff check
         entry: ruff check
         language: system
         types_or: [python, pyi]
-        files: ^(src|tests)/
+        files: ^(src|tests|scripts)/
 
       # Zweites, eigenstaendiges Gate — genau wie in der CI. `--check` statt
       # `--fix`, damit lokal dasselbe passiert wie dort: melden, nicht still
-      # umschreiben. Formatieren dann bewusst mit `ruff format src/ tests/`.
+      # umschreiben. Formatieren dann bewusst mit
+      # `ruff format src/ tests/ scripts/`.
       - id: ruff-format-check
         name: ruff format --check
         entry: ruff format --check
         language: system
         types_or: [python, pyi]
-        files: ^(src|tests)/
+        files: ^(src|tests|scripts)/
 
       # OBS-004: stdio-Transport vertraegt kein print() — stdout gehoert dem
       # Protokoll. Logs gehen via structlog auf stderr.

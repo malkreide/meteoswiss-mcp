@@ -74,30 +74,28 @@ Einrichten: `pip install -e ".[dev]" && pre-commit install`
 
 ```bash
 PYTHONPATH=src pytest tests/ -m "not live"
-ruff check src/ tests/
-ruff format --check src/ tests/
+ruff check src/ tests/ scripts/
+ruff format --check src/ tests/ scripts/
 grep -rnE '^\s*print\s*\(' src/          # muss LEER sein (OBS-004)
 python scripts/tool_hashes.py --write    # danach: git diff --exit-code tool-hashes.json (SEC-022)
+python scripts/check_version_sync.py
 ```
 
-**`scripts/` liegt ausserhalb jedes Gates — und das ist nicht theoretisch.**
-Der CI-Umfang ist `src/ tests/`, das pre-commit-`files:`-Muster ebenfalls
-`^(src|tests)/`. Nachgemessen: `scripts/ingest_climate_normals.py` würde von
-`ruff format` umgeschrieben, ist also heute schon unformatiert — gemeldet hat
-das nie jemand, weil es niemand prüft. Wer den Umfang erweitert, hat als
-ersten Lauf einen roten; das ist die Bereinigung, nicht der Fehler.
+**`scripts/` liegt seit diesem Commit im Gate — vorher nicht, und das war
+nicht theoretisch.** Der Befund, der es ausgelöst hat: `ingest_climate_normals.py`
+war unformatiert und blieb es, weil kein Gate hinsah. Der erste Lauf mit dem
+erweiterten Umfang war deshalb rot; das war die Bereinigung, nicht der Fehler.
 
-**Es gibt kein Versions-Sync-Gate.** `scripts/` enthält `check_ruff_pin.py`,
-`check_tool_hashes.py`, `tool_hashes.py`, `ingest_climate_normals.py` und
-`record_fixtures.py` — kein `check_version_sync.py`. `pyproject.toml` und
-`server.json` stehen beide auf `0.6.1`, gehalten wird das von nichts. Der
-ruff-Pin ist hier vorbildlich gesichert, die Paketversion gar nicht.
+Der Umfang steht an **drei** Stellen: zweimal in `ci.yml` und als
+`files: ^(src|tests|scripts)/` in `.pre-commit-config.yaml`. Wer eine ändert,
+ändert alle — ein pre-commit, das enger greift als die CI, meldet grün, was
+danach rot wird, und ein lokales Gate, das die CI nicht reproduziert, ist
+schlimmer als keines. Geprüft wird das von nichts; es hängt an diesem Absatz.
 
 `ruff check` und `ruff format --check` sind zwei eigenständige Gates; grün
 beim einen sagt nichts über das andere. Der Hash-Guard läuft nur auf 3.13,
 weil die Pydantic-Serialisierung versionsabhängig ist — auf 3.11 weicht der
-Hash ab, ohne dass etwas kaputt wäre. `pre-commit` fährt dieselben fünf
-Gates; nur `scripts/` ist von keinem der beiden ruff-Gates erfasst.
+Hash ab, ohne dass etwas kaputt wäre.
 
 **Live-Tests:** `.github/workflows/live-tests.yml`, täglich 05:17 UTC plus
 `workflow_dispatch`, fährt `PYTHONPATH=src pytest tests/ -m live` auf 3.13
