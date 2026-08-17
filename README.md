@@ -335,8 +335,8 @@ PYTHONPATH=src pytest tests/ -m live -v
 
 # Linting — install the local gates once with `pre-commit install`
 # to run these (and the CI guards) before every commit.
-ruff check src/ tests/
-ruff format --check src/ tests/
+ruff check src/ tests/ scripts/
+ruff format --check src/ tests/ scripts/
 ```
 
 ---

@@ -29,8 +29,13 @@ jobs:
         run: |
           PYTHONPATH=src pytest tests/ -m "not live"
 
+      # `scripts/` gehoert dazu. Dort steht kein Beiwerk: `tool_hashes.py`
+      # erzeugt den Hash-Lock, gegen den SEC-022 prueft, `check_ruff_pin.py`
+      # sichert den ruff-Pin, `record_fixtures.py` erzeugt die Fixtures, gegen
+      # die die Unit-Tests laufen. Werkzeug, an dem die Aussagekraft der
+      # geprueften Gates haengt, gehoert selbst geprueft.
       - name: Lint
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ scripts/
 
       # Zweites, eigenstaendiges Gate. `ruff check` belegt kein Format: ein
       # gruener Linter neben einem roten `ruff format --check` ist ein
@@ -44,8 +49,11 @@ jobs:
       #
       # Kein `--line-length`: die Breite entscheidet die `[tool.ruff]`-Sektion
       # in pyproject.toml, nicht dieser Workflow.
+      #
+      # Scope identisch mit `ruff check` oben. Zwei Gates mit zwei Reichweiten
+      # sehen aus wie eins.
       - name: Format
-        run: ruff format --check src/ tests/
+        run: ruff format --check src/ tests/ scripts/
 
       - name: Guard — no print() in src/ (stdio-Transport-Pflicht, OBS-004)
         run: |
