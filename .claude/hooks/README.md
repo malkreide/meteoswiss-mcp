@@ -16,8 +16,9 @@ also in Dateien, die der Branch nie angefasst hatte. Die Fehlersuche lief
 entsprechend an der falschen Stelle.
 
 Die Prüfung kostet eine Sekunde (gemessen in dieser Umgebung: 1.0–1.2 s,
-netzgebunden) und ersetzt eine Fehlersuche in den falschen Dateien. Sie ist die maschinelle Fassung des ersten Absatzes in `CLAUDE.md`
-(«Vor der Arbeit»), der bis dahin nur als Bitte an den Leser existierte.
+netzgebunden) und ersetzt eine Fehlersuche in den falschen Dateien. Sie ist
+die maschinelle Fassung des ersten Absatzes in `CLAUDE.md` («Vor der Arbeit»),
+der bis dahin nur als Bitte an den Leser existierte.
 
 ## Die drei Zusicherungen
 
@@ -40,7 +41,7 @@ Ausgabe:
 | kein Remote konfiguriert | `git remote` leer |
 | Standard-Branch nicht ermittelbar | leerer Branch-Name |
 | Netz weg, DNS flattert, Auth fehlt | `git fetch` ≠ 0 |
-| detached HEAD ohne gemeinsamen Vorfahren | `rev-list`-Ausgabe nicht numerisch |
+| `rev-list` liefert nichts Zählbares | Ausgabe leer oder nicht numerisch |
 
 Zwei Details, die dafür nötig sind:
 
@@ -60,6 +61,16 @@ Zwei Details, die dafür nötig sind:
 (`ls-remote` als Rückfall + `fetch`), also ~10 s Obergrenze; der Normalfall ist
 eine Operation. `--kill-after` ist nicht kosmetisch: ein git, das in einem
 TLS-Handshake hängt, ignoriert SIGTERM, und die Frist liefe ins Leere.
+
+`--kill-after` gibt es allerdings nur in GNU coreutils. Ein `timeout` ohne
+dieses Flag würde bei *jedem* Aufruf am Argument scheitern — das fetch schlüge
+immer fehl, und der Hook wäre dauerhaft und lautlos wirkungslos. Das ist
+dieselbe Fehlersorte wie beim flachen Klon unten: etwas geht nie los und sieht
+dabei gesund aus. Deshalb wird das Flag einmal ausprobiert und sonst
+weggelassen.
+
+Ein detached HEAD ist übrigens kein Sonderfall: `HEAD..FETCH_HEAD` ist auch
+dort definiert, und der Hook meldet normal.
 
 Zusätzlich steht in `settings.json` ein `"timeout": 20` als zweite,
 unabhängige Grenze — falls die erste je danebengreift.
