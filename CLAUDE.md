@@ -138,7 +138,7 @@ wie der Code: Nichts ist rot, weil nichts geprüft wird, worauf es ankommt.
 
 ## Dieses Repo
 
-**ruff:** `ruff==0.16.1`, gepinnt in `pyproject.toml` unter
+**ruff:** `ruff==0.16.3`, gepinnt in `pyproject.toml` unter
 `[project.optional-dependencies] dev`. Das ist der einzige Pin im Repo — CI
 und `.pre-commit-config.yaml` installieren bzw. rufen daraus, keiner von
 beiden nennt eine eigene Version. Deshalb sind die Hooks `repo: local` /
