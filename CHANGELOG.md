@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Behoben — Browser-Clients kamen am Preflight nicht vorbei
+
+Spec `2026-07-28` routet eine Streamable-HTTP-Anfrage ueber `Mcp-Method`,
+`Mcp-Name` und `Mcp-Protocol-Version`. Die CORS-Freigabeliste nannte davon nur
+den letzten, und den in der Schreibweise `MCP-Protocol-Version` — dazu
+`Mcp-Session-Id`, den Header genau der Session-Mechanik, die dieselbe Revision
+abgeschafft hat. Ein Browser darf einen nicht safelisteten Header nicht senden,
+wenn der Server ihn nicht nennt: die Anfrage starb vor dem ersten MCP-Byte,
+waehrend stdio und Python, fuer die kein Preflight gilt, weiterliefen. Deshalb
+war nichts rot.
+
+Die drei Header stehen jetzt als `CORS_ROUTING_HEADERS` beisammen;
+`tests/test_cors.py` faehrt jeden einzeln gegen die zusammengebaute App und
+haelt die Liste gegen die Konstanten aus `mcp.shared.inbound`.
+
+### Hinzugefuegt — Frischehinweise auf den auflistenden Methoden
+
+SEP-2549, Spec `2026-07-28`: `tools/list`, `resources/list`,
+`resources/templates/list` und `server/discover` antworten mit `ttlMs` 300000
+und `cacheScope` `public`. Das SDK setzt sonst «sofort veraltet, nie geteilt»
+und laesst damit jeden Client bei jeder Verbindung neu auflisten — fuer
+Verzeichnisse, die per Dekorator beim Import feststehen und nicht vom Aufrufer
+abhaengen.
+
+`resources/read` bleibt bewusst ohne Hinweis: das waere eine Zusicherung ueber
+den Inhalt statt ueber das Verzeichnis.
+`test_der_inhalt_einer_ressource_traegt_keinen_frischehinweis` faellt, wenn
+jemand die Methode aufnimmt.
+
+
 ### Hinzugefuegt — die Gates laufen jetzt auch lokal und die Live-Tests ueberhaupt
 
 **`.pre-commit-config.yaml`** faehrt dieselben fuenf Gates wie
