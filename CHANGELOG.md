@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Hinzugefuegt
+
+- **Protokoll-Gate: beide Spec-Aeren gepinnt und geprueft**
+  (`tests/test_protocol_version.py`). `mcp` 2.x bedient zwei Aeren ueber
+  denselben Server — den `initialize`-Handshake, der bei `2025-11-25`
+  deckelt, und den Pro-Request-Envelope, der `2026-07-28` erreicht.
+  `LATEST_PROTOCOL_VERSION` ist ein Alias auf die **moderne** Aera; wer nur
+  dagegen pinnt, laesst genau die Aera frei wandern, die heutige Clients
+  aushandeln. Beide sind jetzt einzeln gepinnt, ein Dependabot-Bump von
+  `mcp` kann keine davon still verschieben.
+
+  Ohne gemessenen Teil: dieser Server baut keine ASGI-App, durch die sich ein
+  `initialize` schicken liesse. Das Gate haengt deshalb an den SDK-Konstanten —
+  die schwaechere Form, im Docstring benannt statt verschwiegen.
+
+  Beide READMEs beschreiben die Aeren; ein Test haelt jede Sprache einzeln
+  dagegen — im Portfolio sind EN und DE desselben Repos schon dreimal
+  auseinandergelaufen, weil nur eine Fassung nachgezogen wurde.
+
 ### Behoben — Browser-Clients kamen am Preflight nicht vorbei
 
 Spec `2026-07-28` routet eine Streamable-HTTP-Anfrage ueber `Mcp-Method`,
@@ -21,6 +40,14 @@ war nichts rot.
 Die drei Header stehen jetzt als `CORS_ROUTING_HEADERS` beisammen;
 `tests/test_cors.py` faehrt jeden einzeln gegen die zusammengebaute App und
 haelt die Liste gegen die Konstanten aus `mcp.shared.inbound`.
+
+### Behoben — die README beschrieb einen aelteren Server
+
+Der Abschnitt «MCP Protocol Version» fuehrte `2024-11-05`, `2025-03-26` und
+`2025-06-18` als «getestete Spec-Versionen». Alle drei liegen unter dem, was
+das in derselben Tabelle genannte `mcp[cli]>=2.0.0,<3` bedient. Die Tabelle
+nennt jetzt beide Aeren, die dieses SDK tatsaechlich fuehrt, und
+`tests/test_protocol_version.py` haelt die Zahlen dagegen.
 
 ### Hinzugefuegt — Frischehinweise auf den auflistenden Methoden
 
