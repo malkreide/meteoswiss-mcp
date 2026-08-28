@@ -51,15 +51,49 @@ jobs:
       # soll keinen roten Lauf erzeugen — ein roter Lauf, dem niemand glaubt,
       # ist so wenig wert wie gar keiner. Ein Formatwechsel an der Quelle
       # ueberlebt die Wiederholung dagegen und wird gemeldet.
+      # `continue-on-error`, damit die Einordnung in jedem Fall laeuft. Rot
+      # wird der Job weiter unten, aus dem eingeordneten Ergebnis.
       - name: Run live tests
+        id: suite
+        continue-on-error: true
         run: |
-          PYTHONPATH=src pytest tests/ -m live && exit 0
-          echo "::warning::Erster Lauf rot — einmal wiederholen, um einen Netzaussetzer auszuschliessen."
-          sleep 60
-          PYTHONPATH=src pytest tests/ -m live
+          set +e
+          lauf() {
+            PYTHONPATH=src pytest tests/ -m live \
+              --junitxml=live-report.xml 2>&1 | tee live-output.txt
+            return "${PIPESTATUS[0]}"
+          }
+          lauf
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "::warning::Erster Lauf rot — einmal wiederholen, um einen Netzaussetzer auszuschliessen."
+            sleep 60
+            lauf
+            code=$?
+          fi
+          echo "pytest_exit=$code" >> "$GITHUB_OUTPUT"
 
-      - name: Erklaerung im Job-Summary, wenn rot
-        if: failure()
+      # `if: failure()` kennt rot und nicht rot. Ein Live-Lauf hat drei
+      # Antworten, und die dritte zaehlt: Ein gescheitertes `pip install`, ein
+      # Timeout oder eine umbenannte Marke sind NICHT dasselbe wie ein
+      # Formatwechsel bei MeteoSchweiz — die Zusammenfassung darunter behauptete
+      # aber bei jedem roten Lauf das Zweite. Und ein Lauf, in dem jeder Test
+      # uebersprungen wurde, endet mit 0 und sah damit aus wie Erfolg.
+      - name: Ergebnis einordnen
+        id: verdict
+        env:
+          PYTEST_EXIT: ${{ steps.suite.outputs.pytest_exit }}
+        run: |
+          args=(live-report.xml)
+          if [ -n "$PYTEST_EXIT" ]; then
+            args+=(--pytest-exit "$PYTEST_EXIT")
+          fi
+          python scripts/classify_live_run.py "${args[@]}"
+
+      # Nur bei `finding`. Der Text darunter erklaert einen Formatwechsel an der
+      # Quelle — er passt nicht auf einen Lauf, der gar nicht stattgefunden hat.
+      - name: Erklaerung im Job-Summary, wenn die Quelle abweicht
+        if: steps.verdict.outputs.state == 'finding'
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
           ## Live-Tests rot
@@ -76,3 +110,40 @@ jobs:
           mit Aufnahmedatum) — sonst faellt derselbe Bruch beim naechsten Mal
           wieder nur hier auf und nicht in den Unit-Tests.
           EOF
+
+      # `unknown` bekommt eine eigene Zusammenfassung: Der Lauf ist rot, aber
+      # nicht, weil die Quelle abgewichen waere — er hat nichts gemessen. Wer
+      # hier die Fixtures neu aufzeichnet, zeichnet einen Nicht-Lauf auf.
+      - name: Zusammenfassung, wenn nichts gemessen wurde
+        if: steps.verdict.outputs.state == 'unknown'
+        env:
+          LIVE_REASON: ${{ steps.verdict.outputs.reason }}
+        run: |
+          {
+            echo "## Live-Tests nicht ausgewertet"
+            echo
+            echo "Der Lauf ist rot, aber **nicht** wegen der Quelle:"
+            echo
+            echo "> $LIVE_REASON"
+            echo
+            echo "Das ist kein Formatwechsel bei MeteoSchweiz und kein Grund, die"
+            echo "Fixtures neu aufzuzeichnen — erst muss die Suite ueberhaupt"
+            echo "wieder laufen."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Erst hier wird der Job rot. `clear` ist gruen; `finding` und `unknown`
+      # sind beide rot, und welcher von beiden es war, steht in der
+      # Zusammenfassung.
+      #
+      # Ueber `env`, nicht ueber `${{ }}` im Skript: Der Grund kann eine
+      # Parser-Meldung ueber eine fremde Datei enthalten, und `${{ }}` setzt sie
+      # vor dem Start woertlich in die Shell ein.
+      - name: Ergebnis durchreichen
+        if: steps.verdict.outputs.state != 'clear'
+        env:
+          LIVE_STATE: ${{ steps.verdict.outputs.state }}
+          LIVE_REASON: ${{ steps.verdict.outputs.reason }}
+        run: |
+          echo "Live-Suite: $LIVE_STATE"
+          echo "$LIVE_REASON"
+          exit 1
