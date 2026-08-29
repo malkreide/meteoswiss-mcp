@@ -14,9 +14,6 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "ecosystem:pip"
     groups:
       runtime:
         patterns:
@@ -36,9 +33,6 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "ecosystem:github-actions"
 
   - package-ecosystem: "docker"
     directory: "/"
@@ -46,6 +40,3 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 3
-    labels:
-      - "dependencies"
-      - "ecosystem:docker"
