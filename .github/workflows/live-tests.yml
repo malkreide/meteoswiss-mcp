@@ -51,6 +51,11 @@ jobs:
       # soll keinen roten Lauf erzeugen — ein roter Lauf, dem niemand glaubt,
       # ist so wenig wert wie gar keiner. Ein Formatwechsel an der Quelle
       # ueberlebt die Wiederholung dagegen und wird gemeldet.
+      #
+      # Die Wiederholung allein raeumt den Aussetzer aber NICHT aus: Am
+      # 3.9.2026 blieben beide Durchgaenge ohne Antwort. Wer aus zwei roten
+      # Laeufen auf die Quelle schliesst, schliesst falsch — das entscheidet
+      # die Einordnung unten, an den Ausnahmenamen, nicht die Zahl der Laeufe.
       # `continue-on-error`, damit die Einordnung in jedem Fall laeuft. Rot
       # wird der Job weiter unten, aus dem eingeordneten Ergebnis.
       - name: Run live tests
@@ -94,11 +99,20 @@ jobs:
       # Quelle — er passt nicht auf einen Lauf, der gar nicht stattgefunden hat.
       - name: Erklaerung im Job-Summary, wenn die Quelle abweicht
         if: steps.verdict.outputs.state == 'finding'
+        env:
+          LIVE_REASON: ${{ steps.verdict.outputs.reason }}
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
           ## Live-Tests rot
 
-          Zweimal rot, also kein Netzaussetzer. Der Ablauf steht in `CLAUDE.md`:
+          Mindestens ein Fehlschlag kam MIT einer Antwort der Quelle zurueck —
+          daran ist etwas einzuordnen. (Reine Aussetzer landen unter `unknown`
+          und nicht hier; steht unten trotzdem eine Transportausnahme, ist der
+          Lauf gemischt und nur der Rest gehoert untersucht.)
+          EOF
+          printf '\n> %s\n\n' "$LIVE_REASON" >> "$GITHUB_STEP_SUMMARY"
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          Der Ablauf steht in `CLAUDE.md`:
 
           **Erst die Quelle abfragen, dann einordnen — nicht aus der
           Fehlermeldung schliessen.** «Nicht gefunden» hiess hier schon einmal

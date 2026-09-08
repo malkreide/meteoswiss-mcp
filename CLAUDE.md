@@ -135,6 +135,45 @@ keinen Zeitpunkt, und die `X-RateLimit`-Kopfzeilen sind hinter dem Proxy nicht
 zu sehen. Belegt sind drei gesperrte Zeitpunkte — 11:14, 11:16 und 11:19 UTC.
 Wer daraus eine Dauer macht, hat sie erfunden.
 
+**Und im eigenen Haus dieselbe Asymmetrie: Ein abgefangener Timeout sieht aus
+wie ein Befund.** Am 3.9.2026 war die Live-Suite dieses Repos rot
+(`actions/runs/33740596284`). Weder Geocoding noch Prognose antworteten, in
+beiden Durchgängen. Der Server tut dabei genau das Richtige — er fängt die
+`ConnectTimeout` ab und gibt seinen Degradationstext zurück:
+
+```
+⚠️ Prognosedaten nicht abrufbar: ReadTimeout
+```
+
+Damit ist die Ausnahme weg, und der Test fällt über eine Zusicherung auf den
+Inhalt. Im JUnit-XML steht danach ein gewöhnlicher `failure`, und die
+Einordnung buchte ihn als `finding`. Die Zusammenfassung darunter behauptete
+dann «Zweimal rot, also kein Netzaussetzer» und schickte den Leser zu
+`scripts/record_fixtures.py`. Nachgefragt lieferten am selben Tag beide
+Endpunkte HTTP 200 in unter einer Sekunde; aufzuzeichnen war nichts. Wer der
+Zusammenfassung gefolgt wäre, hätte einen Aussetzer als Fixture verewigt.
+
+Zwei Dinge, die das allein nicht fängt:
+
+- **Die Wiederholung räumt den Aussetzer nicht aus.** Der Workflow fährt einen
+  zweiten Lauf, um genau das auszuschliessen — beide Durchgänge blieben ohne
+  Antwort. Zwei rote Läufe sind kein Beleg gegen ein Netzproblem, sondern zwei
+  Beobachtungen. Derselbe Fehlschluss wie bei der Codex-Sperre weiter unten:
+  eine lange Reihe von Fehlschlägen belegt eine lange Reihe von Fehlschlägen,
+  nicht ihre Ursache.
+- **Die Grenze läuft nicht am Statuscode, sondern an der Ausnahme.**
+  `scripts/classify_live_run.py` liest den Fehlertext jetzt, statt ihn nur zu
+  zählen: Steht dort eine Transportausnahme aus httpx' `TransportError`-Baum,
+  kam keine Antwort an. `HTTPStatusError` steht bewusst nicht dabei — ein 4xx
+  ist eine Antwort, siehe `lotId` oben. `JSONDecodeError` auch nicht: Wer
+  unlesbares Zeug schickt, hat geschickt, und genau dafür gibt es die Suite.
+
+**`unknown` nur, wenn ALLE gefallenen Tests stumm blieben.** Sonst versteckt
+sich ein echter Formatwechsel hinter dem gleichzeitigen Aussetzer — und das
+wäre schlimmer als der Fehler, den dieser Absatz behebt. Bei gemischten Läufen
+bleibt es `finding`, und der Grund benennt beide Anteile, damit niemand zwei
+Brüche sucht, wo einer ist.
+
 **Dieselbe Falle bei einer Konfigurationsoption: die Vorgabe lesen, bevor man
 einen Schlüssel für wirkungslos hält.** Am 29.8.2026 fielen die
 `labels:`-Zeilen aus den `dependabot.yml` des Portfolios, begründet mit
