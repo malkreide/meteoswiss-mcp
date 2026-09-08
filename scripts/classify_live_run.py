@@ -53,6 +53,25 @@ Einordnung reicht den Grund durch, statt einen zu konstruieren. Sie sieht dann
 auch nicht ins XML — ein liegengebliebener Report aus einem frueheren Schritt
 belegt nichts ueber einen Lauf, der nicht stattgefunden hat.
 
+DER LAUF, DEN DIE QUELLE NIE BEANTWORTET HAT
+--------------------------------------------
+Der Absatz oben zaehlt einen Timeout zu `unknown`, und lange stimmte das nur
+fuer den Timeout, der pytest selbst umbringt. Der andere kam am 3.9.2026 durch:
+Zweimal hintereinander antwortete weder das Geocoding noch die Prognose, der
+Server fing die `ConnectTimeout` ab und gab seinen Degradationstext zurueck,
+die Zusicherung fiel darueber — und aus «keine Antwort» wurde ein
+`finding`. Die Zusammenfassung darunter behauptete dann «Zweimal rot, also kein
+Netzaussetzer» und schickte den Leser die Fixtures neu aufzeichnen. Am selben
+Tag lieferten beide Endpunkte auf Nachfrage HTTP 200 in unter einer Sekunde;
+aufzuzeichnen war nichts.
+
+Ein gefallener Test wird deshalb nicht mehr nur gezaehlt, sondern gelesen:
+Steht in seinem Fehlertext eine Transportausnahme, ist keine Antwort angekommen
+und er belegt nichts ueber den Vertrag mit der Quelle. Sind ALLE gefallenen
+Tests von dieser Art, ist der Lauf `unknown`. Sonst bleibt er `finding` — sonst
+koennte sich ein echter Formatwechsel hinter einem gleichzeitigen Aussetzer
+verstecken.
+
 Aufruf:
     python scripts/classify_live_run.py live-report.xml
     python scripts/classify_live_run.py live-report.xml --pytest-exit 1
@@ -67,12 +86,79 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 CLEAR = "clear"
 FINDING = "finding"
 UNKNOWN = "unknown"
+
+# Ausnahmenamen, bei denen GAR KEINE Antwort ankam. Es ist httpx'
+# `TransportError`-Teilbaum (httpx 0.28), abgeschrieben statt importiert, weil
+# diese Einordnung ohne die Projektabhaengigkeiten laufen koennen muss;
+# `test_transportnamen_decken_httpx_ab` haelt die Liste an httpx fest, damit sie
+# nicht still veraltet.
+#
+# Die Grenze ist gewaehlt, nicht geraten, und `CLAUDE.md` benennt sie:
+# entscheidend ist nie der Statuscode, sondern ob die Quelle ueberhaupt
+# geantwortet hat. Deshalb steht `HTTPStatusError` NICHT hier — ein 4xx ist
+# eine Antwort und gehoert eingeordnet. `JSONDecodeError` ebenso wenig: Wer
+# unlesbares Zeug schickt, hat geschickt, und genau dafuer gibt es diese Suite.
+OHNE_ANTWORT = frozenset(
+    {
+        "CloseError",
+        "ConnectError",
+        "ConnectTimeout",
+        "LocalProtocolError",
+        "NetworkError",
+        "PoolTimeout",
+        "ProtocolError",
+        "ProxyError",
+        "ReadError",
+        "ReadTimeout",
+        "RemoteProtocolError",
+        "TimeoutException",
+        "TransportError",
+        "UnsupportedProtocol",
+        "WriteError",
+        "WriteTimeout",
+    }
+)
+
+_OHNE_ANTWORT_RE = re.compile(r"\b(" + "|".join(sorted(OHNE_ANTWORT)) + r")\b")
+
+
+def _transportnamen(text: str) -> set[str]:
+    """Welche Transportausnahmen stehen in diesem Fehlertext?
+
+    Zwei Formen, beide aus demselben roten Lauf vom 3.9.2026: die rohe
+    Ausnahme (`E   httpx.ConnectTimeout`) und die vom Server abgefangene,
+    die als Text im Werkzeugergebnis landet (`⚠️ Prognosedaten nicht
+    abrufbar: ReadTimeout`). `_sanitize_error` schreibt dort
+    `exc.__class__.__name__`, also steht der Name in beiden Formen.
+    """
+    return set(_OHNE_ANTWORT_RE.findall(text))
+
+
+def _gefallene(root: ET.Element) -> list[set[str]]:
+    """Je gefallenem Testcase die Transportausnahmen in seinem Fehlertext.
+
+    Nur Testcases MIT `failure`/`error`-Kind. Ein Report, der bloss die
+    Summen in den Attributen fuehrt, liefert hier eine leere Liste — und das
+    ist Absicht: Wer die Einzelfaelle nicht sieht, kann nicht behaupten, sie
+    seien alle stumm geblieben.
+    """
+    gefallen = []
+    for tc in root.iter("testcase"):
+        kinder = [k for k in tc if k.tag in ("failure", "error")]
+        if not kinder:
+            continue
+        namen: set[str] = set()
+        for k in kinder:
+            namen |= _transportnamen(f"{k.get('message') or ''}\n{k.text or ''}")
+        gefallen.append(namen)
+    return gefallen
 
 
 def classify(
@@ -113,10 +199,25 @@ def classify(
     )
 
     if failures or errors:
-        return (
-            FINDING,
-            f"{failures} Fehlschlag/Fehlschlaege und {errors} Fehler von {tests} Test(s)",
-        )
+        grund = f"{failures} Fehlschlag/Fehlschlaege und {errors} Fehler von {tests} Test(s)"
+        gefallen = _gefallene(root)
+        stumm = [namen for namen in gefallen if namen]
+        # `unknown` nur, wenn JEDER gefallene Testcase im Report steht und
+        # JEDER von ihnen ohne Antwort blieb. Sonst `finding` — ein echter
+        # Formatwechsel darf sich nicht hinter einem gleichzeitigen Aussetzer
+        # verstecken, und ein Report ohne Einzelfaelle belegt nichts.
+        vollstaendig = len(gefallen) >= failures + errors
+        if gefallen and vollstaendig and len(stumm) == len(gefallen):
+            namen = sorted({n for s in stumm for n in s})
+            return (
+                UNKNOWN,
+                f"alle {len(gefallen)} gefallenen Test(s) blieben ohne Antwort der "
+                f"Quelle ({', '.join(namen)}) — verglichen wurde nichts",
+            )
+        if stumm:
+            namen = sorted({n for s in stumm for n in s})
+            grund += f"; davon {len(stumm)} ohne Antwort der Quelle ({', '.join(namen)})"
+        return FINDING, grund
     if tests == 0:
         return (
             UNKNOWN,
