@@ -340,6 +340,48 @@ bekannten Schubladen zu zwingen: Dieser Abschnitt musste schon einmal von drei
 auf vier Gründe wachsen, und die 👍-Reaktion stand hier zwei Fassungen lang als
 Tatsache.
 
+**Am 8.9.2026 kam die fünfte Form — eine Statustabelle.** PR #74 in diesem
+Repo: `get_reviews` leer, `get_review_comments` leer, `get_comments` genau
+einer. Aber weder «Swish!» noch eine der beiden Ausfallmeldungen, sondern ein
+Kommentar hinter dem Marker `<!-- codex-pull-request-review-summary -->`:
+
+```
+## Codex Review Summary
+
+| Review | Status | Commit | Review trigger |
+| --- | --- | --- | --- |
+| 📝 **Code Review** | ✅ **Completed** 2026-09-08T04:24:27.802773Z | `59e7e24` | Draft marked ready |
+```
+
+Drei Dinge daran ändern den Abschnitt darüber:
+
+- **Die Tabelle ist der bessere Beleg — sie nennt den geprüften Commit.** Keine
+  der bisher aufgezählten Formen tut das; bei ihnen muss man dem Zeitstempel
+  glauben. Die Regel «belegt erst durch ein Review-Objekt **oder** eine
+  Befundlos-Meldung» hätte diesen Lauf trotzdem als ungeprüft gebucht, obwohl
+  er ausdrücklich als abgeschlossen ausgewiesen ist — genau der Fehlalarm in
+  die Gegenrichtung, vor dem der Absatz darüber warnt. Ob die Tabelle auch bei
+  einem *Befund* erscheint und wie sie dann neben dem Review-Objekt aussieht,
+  ist ungemessen: Hier gab es keinen.
+- **Der Kommentar wird in place editiert.** Dieselbe ID trug um 04:23:04
+  «🔄 **Running**» und um 04:24:28 «✅ **Completed**»; entsprechend stehen
+  `created_at` und `updated_at` auseinander. Wer einmal früh liest, liest
+  «läuft noch» und hat nichts — und wer aus einer alten Abfrage zitiert,
+  zitiert einen überholten Stand. Der Zähler ist damit schon ab Reviewbeginn
+  1: Aus den drei Bedeutungen von `comments: 1` oben sind vier geworden, und
+  die vierte heisst «noch gar kein Ergebnis».
+- **Die versprochenen Reaktionen blieben wieder aus.** Der Infokasten kündigt
+  deren zwei an — 👀 während des Laufs, 👍 beim befundlosen Abschluss. Der
+  Kommentar trug bei allen drei Abfragen — während des Laufs, direkt danach
+  und am Folgetag — `reactions.total_count: 0`. Drei Beobachtungspunkte, keine
+  lückenlose Messung; ausgeschlossen ist eine kurz sichtbare Reaktion damit
+  nicht. Zweite Bestätigung nach dem 23.8., dass der Kasten
+  keine Quelle ist.
+
+Beobachtet ist ein Lauf in einem Repo. Ob die älteren Formen daneben
+weiterbestehen oder abgelöst sind, gibt das nicht her — die Liste oben bleibt
+deshalb stehen, statt ersetzt zu werden.
+
 Und ein befundloser Lauf ist kein Freispruch. Am 23.8. lief derselbe Text durch
 42 Reviews: 36 meldeten denselben P2-Befund, 6 die Befundlos-Meldung — gleiche
 Eingabe, gegenteiliges Urteil, alles in denselben neun Minuten. Ein sauberer
@@ -360,6 +402,21 @@ mergen. Am 21./22.8. lagen zwischen «ready for review» und Merge mehrfach drei
 bis fünf Sekunden. Codex wird beim Umschalten von Draft auf ready ausgelöst und
 braucht danach Zeit; wer sofort mergt, hat das Häkchen gesetzt und den Review
 nicht abgewartet.
+
+Am 8.9.2026 waren es in diesem Repo zwei Sekunden — und diesmal ist die andere
+Seite mitgemessen: «ready» um 04:22:49 (Zeitpunkt des Webhook-Ereignisses;
+Merge und Reviewzeiten stammen aus der API), Merge um 04:22:51, Codex begann
+um 04:23:00 und war um 04:24:27 fertig. Der Review startete also **neun Sekunden
+nach dem Merge**, und zwischen «ready» und Ergebnis lagen 98 Sekunden. Das ist
+eine Beobachtung und keine Wartevorgabe, aber sie beziffert, was «braucht
+danach Zeit» heisst: Minuten, nicht Sekunden.
+
+Dass hier trotzdem geprüft wurde und nichts gefunden wurde, ist Glück und kein
+Verfahren. Der Review lief auf dem bereits gemergten Commit; ein Befund hätte
+einen Nachfolge-PR gebraucht statt einer Korrektur davor. Und ausgerechnet
+dieser PR änderte die Fehlerklassifikation der CI — wäre die Grenzziehung
+falsch gewesen, hätte sie künftig echte Quellenbrüche als Netzaussetzer
+weggebucht.
 
 Das Kontingent hängt am Konto, nicht am Repo, und Code-Reviews haben einen
 eigenen Topf — nur GitHub-getriggerte Reviews zählen hinein. ChatGPT-Pläne
