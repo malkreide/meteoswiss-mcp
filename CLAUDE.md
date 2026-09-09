@@ -365,22 +365,26 @@ Drei Dinge daran ändern den Abschnitt darüber:
   ist ungemessen: Hier gab es keinen.
 - **Der Kommentar wird in place editiert.** Dieselbe ID trug um 04:23:04
   «🔄 **Running**» und um 04:24:28 «✅ **Completed**»; entsprechend stehen
-  `created_at` und `updated_at` auseinander. Wer einmal früh liest, liest
+  `created_at` und `updated_at` auseinander. Am 9.9. dasselbe mit Kommentar
+  `5595215230`: um 03:15:07 «Running», um 03:16:20 «Completed». Wer früh liest,
+  liest
   «läuft noch» und hat nichts — und wer aus einer alten Abfrage zitiert,
   zitiert einen überholten Stand. Der Zähler ist damit schon ab Reviewbeginn
   1: Aus den drei Bedeutungen von `comments: 1` oben sind vier geworden, und
   die vierte heisst «noch gar kein Ergebnis».
 - **Die versprochenen Reaktionen blieben wieder aus.** Der Infokasten kündigt
   deren zwei an — 👀 während des Laufs, 👍 beim befundlosen Abschluss. Der
-  Kommentar trug bei allen drei Abfragen — während des Laufs, direkt danach
-  und am Folgetag — `reactions.total_count: 0`. Drei Beobachtungspunkte, keine
-  lückenlose Messung; ausgeschlossen ist eine kurz sichtbare Reaktion damit
-  nicht. Zweite Bestätigung nach dem 23.8., dass der Kasten
-  keine Quelle ist.
+  Beide Kommentare trugen bei jeder Abfrage `reactions.total_count: 0` — am
+  8.9. während des Laufs, direkt danach und am Folgetag, am 9.9. während des
+  Laufs und nach dem Abschluss. Fünf Beobachtungspunkte, keine lückenlose
+  Messung; ausgeschlossen ist eine kurz sichtbare Reaktion damit nicht. Der
+  Kasten ist damit an drei Tagen widerlegt — 23.8., 8.9., 9.9.
 
-Beobachtet ist ein Lauf in einem Repo. Ob die älteren Formen daneben
-weiterbestehen oder abgelöst sind, gibt das nicht her — die Liste oben bleibt
-deshalb stehen, statt ersetzt zu werden.
+Zweimal beobachtet, am 8. und 9.9.2026, beide Male in diesem Repo und beide
+Male ohne Befund. Das macht die Form belastbarer, aber nicht die Frage, ob die
+älteren daneben weiterbestehen oder abgelöst sind: Dafür bräuchte es einen
+Lauf, der eine der alten Formen zeigt. Die Liste oben bleibt deshalb stehen,
+statt ersetzt zu werden.
 
 Und ein befundloser Lauf ist kein Freispruch. Am 23.8. lief derselbe Text durch
 42 Reviews: 36 meldeten denselben P2-Befund, 6 die Befundlos-Meldung — gleiche
@@ -403,20 +407,35 @@ bis fünf Sekunden. Codex wird beim Umschalten von Draft auf ready ausgelöst un
 braucht danach Zeit; wer sofort mergt, hat das Häkchen gesetzt und den Review
 nicht abgewartet.
 
-Am 8.9.2026 waren es in diesem Repo zwei Sekunden — und diesmal ist die andere
-Seite mitgemessen: «ready» um 04:22:49 (Zeitpunkt des Webhook-Ereignisses;
-Merge und Reviewzeiten stammen aus der API), Merge um 04:22:51, Codex begann
-um 04:23:00 und war um 04:24:27 fertig. Der Review startete also **neun Sekunden
-nach dem Merge**, und zwischen «ready» und Ergebnis lagen 98 Sekunden. Das ist
-eine Beobachtung und keine Wartevorgabe, aber sie beziffert, was «braucht
-danach Zeit» heisst: Minuten, nicht Sekunden.
+Am 8. und 9.9.2026 zweimal nachgemessen, und diesmal ist die andere Seite mit
+dabei — bisher war nur «ready → Merge» belegt:
 
-Dass hier trotzdem geprüft wurde und nichts gefunden wurde, ist Glück und kein
-Verfahren. Der Review lief auf dem bereits gemergten Commit; ein Befund hätte
-einen Nachfolge-PR gebraucht statt einer Korrektur davor. Und ausgerechnet
-dieser PR änderte die Fehlerklassifikation der CI — wäre die Grenzziehung
-falsch gewesen, hätte sie künftig echte Quellenbrüche als Netzaussetzer
-weggebucht.
+|                       | #74 (8.9.) | #75 (9.9.) |
+| --------------------- | ---------- | ---------- |
+| «ready» (Webhook)     | 04:22:49   | 03:14:56   |
+| Merge (API)           | 04:22:51   | 03:14:59   |
+| Codex startet         | 04:23:00   | 03:15:03   |
+| Codex fertig          | 04:24:27   | 03:16:19   |
+| «ready» → Merge       | 2 s        | 3 s        |
+| Merge → Reviewstart   | 9 s        | 4 s        |
+| «ready» → Ergebnis    | 99 s       | 84 s       |
+
+Beide Male lag der Merge **vor** dem Reviewstart. Die «ready»-Zeiten stammen
+aus dem Webhook-Ereignis und haben Sekundenauflösung, die Codex-Zeiten aus der
+Statustabelle mit Bruchteilen; die Summen tragen also rund eine Sekunde
+Unschärfe.
+
+Zwei Punkte sind keine Verteilung, aber die Grössenordnung wiederholt sich:
+Zwischen «ready» und Ergebnis liegt gut eine Minute. Wer in der dritten Sekunde
+mergt, hat das Häkchen gesetzt und den Review nicht abgewartet — unabhängig
+davon, ob der Review danach etwas findet.
+
+Dass beide Male trotzdem geprüft wurde und nichts gefunden wurde, ist Glück und
+kein Verfahren. Beide Reviews liefen auf dem bereits gemergten Commit; ein
+Befund hätte je einen Nachfolge-PR gebraucht statt einer Korrektur davor. Beim
+ersten ging es ausgerechnet um die Fehlerklassifikation der CI — wäre die
+Grenzziehung falsch gewesen, hätte sie künftig echte Quellenbrüche als
+Netzaussetzer weggebucht. Der zweite war dieser Abschnitt selbst.
 
 Das Kontingent hängt am Konto, nicht am Repo, und Code-Reviews haben einen
 eigenen Topf — nur GitHub-getriggerte Reviews zählen hinein. ChatGPT-Pläne
