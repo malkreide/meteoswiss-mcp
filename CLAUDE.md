@@ -320,13 +320,13 @@ wie der Code: Nichts ist rot, weil nichts geprüft wird, worauf es ankommt.
 
 ## Dieses Repo
 
-**ruff:** `ruff==0.16.3`, gepinnt in `pyproject.toml` unter
-`[project.optional-dependencies] dev`. Das ist der einzige Pin im Repo — CI
-und `.pre-commit-config.yaml` installieren bzw. rufen daraus, keiner von
-beiden nennt eine eigene Version. Deshalb sind die Hooks `repo: local` /
-`language: system` und nicht `ruff-pre-commit` (das bräuchte ein zweites
-`rev:`). Dass das ruff im PATH wirklich der Pin ist, prüft
-`scripts/check_ruff_pin.py` als erster Hook.
+**ruff:** exakt gepinnt in `pyproject.toml` unter
+`[project.optional-dependencies] dev`; die Version dort nachlesen, nicht hier.
+Das ist der einzige Pin im Repo — CI und `.pre-commit-config.yaml`
+installieren bzw. rufen daraus, keiner von beiden nennt eine eigene Version.
+Deshalb sind die Hooks `repo: local` / `language: system` und nicht
+`ruff-pre-commit` (das bräuchte ein zweites `rev:`). Dass das ruff im PATH
+wirklich der Pin ist, prüft `scripts/check_ruff_pin.py` als erster Hook.
 
 Einrichten: `pip install -e ".[dev]" && pre-commit install`
 
