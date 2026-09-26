@@ -3,16 +3,15 @@
 # - github-actions: hält actions/setup-python, checkout, pypa-publish aktuell
 # - docker: bewacht das Dockerfile-Base-Image
 #
-# Wöchentlich Montags, max. 5 offene PRs pro Ecosystem — Rauschen niedrig
-# halten, aber keine veraltete Lib übersehen.
+# Monatlich, ein gebündelter PR pro Gruppe, max. 5 offene PRs pro Ecosystem —
+# Rauschen niedrig halten, aber keine veraltete Lib übersehen.
 
 version: 2
 updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
     open-pull-requests-limit: 5
     groups:
       runtime:
@@ -26,17 +25,22 @@ updates:
           - "pytest*"
           - "respx*"
           - "ruff*"
+      python-dependencies:
+        patterns:
+          - "*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
     open-pull-requests-limit: 5
 
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
     open-pull-requests-limit: 3
