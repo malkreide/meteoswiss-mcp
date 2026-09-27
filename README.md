@@ -336,9 +336,17 @@ other era is refused.
 Both revisions are pinned in
 [`tests/test_protocol_version.py`](tests/test_protocol_version.py) and asserted
 against the installed SDK, so a Dependabot bump of `mcp` cannot move either one
-silently. This server builds no ASGI app to send an `initialize` through, so
-the gate asserts the SDK constants rather than a measured response — the
-weaker form, named rather than left unsaid.
+silently. It is also measured on the wire:
+[`tests/test_spec_2026.py`](tests/test_spec_2026.py) sends real requests of
+both eras through the same ASGI stack `main()` hands to uvicorn — a
+`2026-07-28` tool call with no handshake and no session, and an `initialize`
+that is capped at `2025-11-25`.
+
+**No deprecated capability.** `2026-07-28` deprecates logging, sampling and
+roots (SEP-2577). The server calls none of them: in-flight status goes out as
+`notifications/progress` (reaching any client that sends a `progressToken`, in
+both eras), and failures are stated in the tool result itself. A test keeps
+the source free of `ctx.info`/`ctx.warning` and friends.
 
 Note that the SDK's `LATEST_PROTOCOL_VERSION` is an alias for the **modern**
 era, not for the handshake era — pinning against it alone would leave the era

@@ -879,6 +879,23 @@ async def app_lifespan(server: MCPServer) -> AsyncIterator[AppContext]:
         yield AppContext(http=http)
 
 
+async def _progress(ctx: Context | None, done: int, total: int, message: str) -> None:
+    """Meldet einen Zwischenstand als `notifications/progress`.
+
+    Frueher gingen diese Meldungen als `ctx.info` hinaus. Die Logging-Capability
+    ist mit Spec 2026-07-28 abgekuendigt (SEP-2577); ein 2026-07-28-Client
+    bekommt sie nur, wenn er pro Anfrage `io.modelcontextprotocol/logLevel`
+    setzt, sonst verwirft das SDK sie still. Fortschritt bleibt Teil der Spec
+    und gilt fuer beide Aeren gleich: er erreicht jeden Client, der einen
+    `progressToken` mitschickt, und ist ohne Token ein No-op.
+
+    Kein Fehlerkanal: Fehlschlaege stehen im Resultat und im structlog-Log,
+    nicht hier.
+    """
+    if ctx is not None:
+        await ctx.report_progress(done, total, message)
+
+
 @asynccontextmanager
 async def _http_client(ctx: Context | None) -> AsyncIterator[httpx.AsyncClient]:
     """Liefert den Lifespan-Client wenn `ctx` gesetzt ist, sonst einen transienten.
@@ -2008,8 +2025,7 @@ async def meteo_current(params: CurrentInput, ctx: Context | None = None) -> str
         )
 
     try:
-        if ctx is not None:
-            await ctx.info(f"Lade STAC-Item für Station {code}")
+        await _progress(ctx, 0, 1, f"Lade STAC-Item für Station {code}")
         async with _http_client(ctx) as client:
             rows = await _fetch_stac_now_csv(client, code)
     except Exception as exc:
@@ -2020,8 +2036,6 @@ async def meteo_current(params: CurrentInput, ctx: Context | None = None) -> str
             station=code,
             error_type=exc.__class__.__name__,
         )
-        if ctx is not None:
-            await ctx.warning(f"STAC-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
         stac_url = _smn_stac_item_url(code)
         return (
             f"⚠️ Live-Daten für Station {code} nicht abrufbar: {_sanitize_error(exc)}\n\n"
@@ -2128,8 +2142,7 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
             lat, lon = params.latitude, params.longitude
             display_name = f"{lat:.4f}° N, {lon:.4f}° E"
         elif params.location:
-            if ctx is not None:
-                await ctx.info(f"Geokodiere '{params.location}'")
+            await _progress(ctx, 0, 2, f"Geokodiere '{params.location}'")
             try:
                 lat, lon, display_name, _match = await _geocode(client, params.location)
             except Exception as exc:
@@ -2147,8 +2160,7 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
             # Fallback: Zürich
             lat, lon, display_name = 47.3769, 8.5417, "Zürich"
 
-        if ctx is not None:
-            await ctx.info(f"Lade Prognose für {display_name}")
+        await _progress(ctx, 1, 2, f"Lade Prognose für {display_name}")
         try:
             data, prov = await _fetch_open_meteo_forecast(
                 client, lat, lon, params.days, params.hourly
@@ -2160,8 +2172,6 @@ async def meteo_forecast(params: ForecastInput, ctx: Context | None = None) -> s
                 endpoint="open_meteo",
                 error_type=exc.__class__.__name__,
             )
-            if ctx is not None:
-                await ctx.warning(f"Forecast-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
             return (
                 f"⚠️ Prognosedaten nicht abrufbar: {_sanitize_error(exc)}\n\n"
                 "**Direktzugang MeteoSwiss:**\n"
@@ -2317,8 +2327,7 @@ async def meteo_school_check(params: SchoolCheckInput, ctx: Context | None = Non
     """
     logger.info("tool_invoked", tool="meteo_school_check", activity=params.activity)
     async with _http_client(ctx) as client:
-        if ctx is not None:
-            await ctx.info(f"Geokodiere '{params.location}'")
+        await _progress(ctx, 0, 2, f"Geokodiere '{params.location}'")
         try:
             lat, lon, display_name, _match = await _geocode(client, params.location)
         except Exception as exc:
@@ -2330,8 +2339,7 @@ async def meteo_school_check(params: SchoolCheckInput, ctx: Context | None = Non
             )
             return f"Fehler beim Geokodieren von '{params.location}': {_sanitize_error(exc)}"
 
-        if ctx is not None:
-            await ctx.info(f"Lade 7-Tage-Forecast für {display_name}")
+        await _progress(ctx, 1, 2, f"Lade 7-Tage-Forecast für {display_name}")
         try:
             data, prov = await _fetch_open_meteo_forecast(client, lat, lon, 7, hourly=False)
         except Exception as exc:
@@ -2465,8 +2473,7 @@ async def meteo_climate_normals(params: ClimateNormalsInput, ctx: Context | None
     if not normals:
         # Runtime-Fallback: konfigurierbare URL via MCP_CLIMATE_NORMALS_URL_TEMPLATE
         # (z.B. STAC). Bleibt None wenn ENV nicht gesetzt oder Fetch fehlschlägt.
-        if ctx is not None:
-            await ctx.info(f"Versuche Runtime-Fetch für Station {code}")
+        await _progress(ctx, 0, 1, f"Versuche Runtime-Fetch für Station {code}")
         async with _http_client(ctx) as client:
             normals = await _try_runtime_fetch_climate_normals(client, code)
 
@@ -2606,6 +2613,13 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
     )
     unknown_canton = False
     app_failures = 0
+    plz_list: list[int] = []
+    # Bisher ging ein Fehlschlag zusaetzlich als `ctx.warning` an den
+    # Client. Diese Capability ist abgekuendigt (SEP-2577) und erreicht einen
+    # 2026-07-28-Client nur auf Opt-in — das Resultat ist also der einzige
+    # Kanal, der sicher ankommt, und muss den Fehlschlag selbst tragen.
+    api_failed = False
+    opendata_failed = False
 
     if warnings_api_url:
         try:
@@ -2634,8 +2648,7 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
                 endpoint="warnings_api",
                 error_type=exc.__class__.__name__,
             )
-            if ctx is not None:
-                await ctx.warning(f"Warnings-API-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
+            api_failed = True
     else:
         # MeteoSwiss-App-Backend: PLZ-Liste je nach Filter bestimmen.
         if plz_query:
@@ -2668,10 +2681,7 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
                     endpoint="app_warnings",
                     error_type=exc.__class__.__name__,
                 )
-                if ctx is not None:
-                    await ctx.warning(
-                        f"MeteoSwiss-App-Fetch fehlgeschlagen: {_sanitize_error(exc)}"
-                    )
+                app_failures = len(plz_list)
 
     # Linkstack-Ergänzung: opendata.swiss-Katalog (immer als ergänzende Info)
     cap_url = "https://opendata.swiss/api/3/action/package_search?q=meteoschweiz+warnungen&rows=5"
@@ -2693,8 +2703,7 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
             endpoint="opendata_swiss",
             error_type=exc.__class__.__name__,
         )
-        if ctx is not None:
-            await ctx.warning(f"opendata.swiss-Fetch fehlgeschlagen: {_sanitize_error(exc)}")
+        opendata_failed = True
         datasets = []
 
     lines = [
@@ -2711,7 +2720,13 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
 
     # ENV-Override-API (altes Schema): rendern, wenn aktiv.
     if warnings_api_url:
-        if structured_warnings:
+        if api_failed:
+            lines += [
+                "⚠️ _Warnungsquelle nicht erreichbar — Warnlage unbekannt, nicht "
+                "warnfrei. Warnkarte unten prüfen._",
+                "",
+            ]
+        elif structured_warnings:
             lines += [
                 f"### Aktive Warnungen ({len(structured_warnings)})",
                 "| Stufe | Typ | Region | Gültig bis | Hinweis |",
@@ -2734,7 +2749,15 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
         # MeteoSwiss-App-Quelle (neues Schema).
         active = [w for w in app_warnings if not w.get("outlook")]
         outlook = [w for w in app_warnings if w.get("outlook")]
-        if not app_warnings:
+        if plz_list and app_failures == len(plz_list):
+            # Keine einzige Abfrage beantwortet: «keine Warnungen» waere hier
+            # eine Entwarnung ohne Messung.
+            lines += [
+                "⚠️ _Warnungsquelle nicht erreichbar — Warnlage unbekannt, nicht "
+                "warnfrei. Warnkarte unten prüfen._",
+                "",
+            ]
+        elif not app_warnings:
             lines += [
                 "✅ _Zurzeit keine aktiven Warnungen für diesen Perimeter._",
                 "",
@@ -2781,7 +2804,7 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
                     "für Details einen Kanton oder eine PLZ angeben._",
                     "",
                 ]
-        if app_failures:
+        if app_failures and app_failures < len(plz_list):
             lines += [
                 f"_Hinweis: {app_failures} PLZ-Abfrage(n) fehlgeschlagen — "
                 "Übersicht ggf. unvollständig._",
@@ -2823,6 +2846,8 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
             slug = ds.get("name", "")
             url = f"https://opendata.swiss/de/dataset/{slug}" if slug else "–"
             lines.append(f"- [{name}]({url})")
+    elif opendata_failed:
+        lines += ["", "_Hinweis: OGD-Katalog auf opendata.swiss nicht abrufbar._"]
 
     if params.response_format == ResponseFormat.JSON:
         payload: dict[str, Any] = {
@@ -2834,11 +2859,15 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
             "meteoalarm_url": "https://www.meteoalarm.org/en/live/country/?s=CH",
             "ogd_datensaetze": datasets[:3],
         }
+        if opendata_failed:
+            payload["ogd_katalog_nicht_erreichbar"] = True
         if warnings_api_url:
             payload["quelle"] = "override"
             payload["warnings_api_active"] = True
             payload["warnings_api_url"] = warnings_api_url
             payload["aktive_warnungen"] = structured_warnings or []
+            if api_failed:
+                payload["quelle_nicht_erreichbar"] = True
         else:
             payload["quelle"] = "meteoswiss_app_api"
             payload["warnings_api_active"] = True
@@ -2850,6 +2879,8 @@ async def meteo_warnings(params: WarningsInput, ctx: Context | None = None) -> s
                 )
             if app_failures:
                 payload["fehlgeschlagene_abfragen"] = app_failures
+                if app_failures == len(plz_list):
+                    payload["quelle_nicht_erreichbar"] = True
             if unknown_canton:
                 payload["fehler"] = f"unbekannter Kanton: {canton_filter}"
         return json.dumps(
