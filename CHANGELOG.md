@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-27
+
+Der Server spricht Spec `2026-07-28` nativ: moderne Clients erreichen ihn ohne
+`initialize`-Handshake und ohne Session, Clients der Handshake-Aera
+(`2024-11-05` … `2025-11-25`) weiterhin wie bisher. Beide Aeren sind am Draht
+gemessen, nicht nur an SDK-Konstanten.
+
+**Was Nutzende merken:**
+
+- **`meteo_warnings` entwarnt nicht mehr, wenn die Quelle schweigt.** Bei
+  einem Totalausfall stand bisher «✅ Zurzeit keine aktiven Warnungen» im
+  Resultat; jetzt «Warnlage unbekannt, nicht warnfrei», im JSON
+  `quelle_nicht_erreichbar: true`. Wer das Resultat maschinell auswertet,
+  sollte das neue Feld beachten.
+- **Zwischenstaende** («Geokodiere …», «Lade Prognose …») kommen als
+  `notifications/progress` statt als Log-Meldung. Ein Client, der bisher
+  Log-Meldungen anzeigte, sieht sie nur noch, wenn er Fortschritt anfordert.
+- **Browser-Clients** kommen am CORS-Preflight vorbei (`Mcp-Method`,
+  `Mcp-Name`, `Mcp-Protocol-Version`).
+- **Streamable-HTTP** weist unter einem echten Hostnamen nicht mehr mit 421
+  ab; neu `MCP_ALLOWED_HOSTS` fuer die Host-Allow-List.
+- Die auflistenden Methoden tragen Frischehinweise (`ttlMs` 300000,
+  `cacheScope` `public`).
+
+Die Einzelheiten stehen in den Abschnitten unten.
+
 ### Geaendert — keine abgekuendigte Capability mehr (Spec `2026-07-28`, SEP-2577)
 
 Die Werkzeuge meldeten Zwischenstaende und Fehlschlaege ueber `ctx.info` und
