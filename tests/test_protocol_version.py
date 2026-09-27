@@ -28,10 +28,11 @@ Nachgemessen statt aus Konstantennamen geschlossen: die Aushandlung steht in
 
 — sie haengt an keinem Transport, gilt also fuer stdio ebenso wie fuer HTTP.
 
-Ohne gemessenen Teil: dieses Repo baut keine ASGI-App, durch die sich ein
-`initialize` schicken liesse. Die Zusicherungen unten haengen deshalb an den
-SDK-Konstanten. Das ist die schwaechere Form, und sie steht hier benannt statt
-unausgesprochen.
+Die Zusicherungen hier haengen an den SDK-Konstanten — die schwaechere Form.
+Die staerkere steht in `tests/test_spec_2026.py`: echte Anfragen beider Aeren
+durch `_build_http_app`. Eine fruehere Fassung dieses Docstrings behauptete,
+das Repo baue gar keine ASGI-App; `_build_http_app` gab es da schon, und
+`tests/test_cors.py` fuhr bereits dagegen.
 """
 
 from __future__ import annotations

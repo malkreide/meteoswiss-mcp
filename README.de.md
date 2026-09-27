@@ -75,9 +75,18 @@ aus der jeweils anderen Aera wird abgewiesen.
 Beide Revisionen sind in
 [`tests/test_protocol_version.py`](tests/test_protocol_version.py) gepinnt und
 werden gegen das installierte SDK geprueft; ein Dependabot-Bump von `mcp` kann
-also keine der beiden still verschieben. Dieser Server baut keine ASGI-App, durch die sich ein `initialize`
-schicken liesse; das Gate sichert deshalb die SDK-Konstanten statt einer
-gemessenen Antwort — die schwaechere Form, benannt statt verschwiegen.
+also keine der beiden still verschieben. Gemessen wird zusaetzlich am Draht:
+[`tests/test_spec_2026.py`](tests/test_spec_2026.py) schickt echte Anfragen
+beider Aeren durch denselben ASGI-Stack, den `main()` an uvicorn uebergibt —
+einen `2026-07-28`-Werkzeugaufruf ohne Handshake und ohne Session, und einen
+`initialize`, der bei `2025-11-25` gedeckelt wird.
+
+**Keine abgekuendigte Capability.** `2026-07-28` kuendigt Logging, Sampling und
+Roots ab (SEP-2577). Der Server ruft keine davon: Zwischenstaende gehen als
+`notifications/progress` hinaus (erreicht jeden Client, der einen
+`progressToken` mitschickt, in beiden Aeren), Fehlschlaege stehen im
+Tool-Resultat selbst. Ein Test haelt den Quelltext frei von
+`ctx.info`/`ctx.warning` & Co.
 
 Zu beachten: `LATEST_PROTOCOL_VERSION` im SDK ist ein Alias auf die **moderne**
 Aera, nicht auf die Handshake-Aera — wer nur dagegen pinnt, laesst genau die

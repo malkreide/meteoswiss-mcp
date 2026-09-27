@@ -492,7 +492,13 @@ async def test_meteo_warnings_unknown_canton():
 
 @pytest.mark.asyncio
 async def test_meteo_warnings_app_failure_degrades():
-    """App-API-Fehler degradiert sauber, ohne roher Stacktrace."""
+    """App-API-Fehler degradiert sauber, ohne roher Stacktrace.
+
+    Und ohne Entwarnung: Antwortet keine einzige Abfrage, ist die Warnlage
+    unbekannt. Frueher stand hier «keine aktiven Warnungen» im Resultat, und
+    der Fehlschlag ging nur als `ctx.warning` hinaus — die Capability, die
+    Spec 2026-07-28 abkuendigt und die ein moderner Client ohne Opt-in nie sieht.
+    """
     import respx
 
     from meteoswiss_mcp.server import WarningsInput, _cache_clear, meteo_warnings
@@ -502,8 +508,9 @@ async def test_meteo_warnings_app_failure_degrades():
         r.get(url__startswith=_APP_URL).respond(500, json={"error": "boom"})
         r.get(url__startswith=_OPENDATA_URL).respond(200, json={"result": {"results": []}})
         result = await meteo_warnings(WarningsInput(plz="8001"))
-    assert "keine aktiven warnungen" in result.lower()
-    assert "fehlgeschlagen" in result.lower()
+    assert "warnlage unbekannt" in result.lower()
+    assert "keine aktiven warnungen" not in result.lower()
+    assert "✅" not in result
     assert "Traceback" not in result
     assert "app-prod-ws" not in result
 

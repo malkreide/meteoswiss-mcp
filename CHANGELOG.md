@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Geaendert — keine abgekuendigte Capability mehr (Spec `2026-07-28`, SEP-2577)
+
+Die Werkzeuge meldeten Zwischenstaende und Fehlschlaege ueber `ctx.info` und
+`ctx.warning` — die Logging-Capability, die `2026-07-28` abkuendigt. Ein
+moderner Client bekommt solche Meldungen nur, wenn er pro Anfrage
+`io.modelcontextprotocol/logLevel` setzt; sonst verwirft das SDK sie still,
+und jeder Aufruf warf eine `MCPDeprecationWarning`.
+
+- **Zwischenstaende** («Geokodiere …», «Lade Prognose …») gehen jetzt als
+  `notifications/progress` hinaus, ueber `_progress()`. Fortschritt bleibt Teil
+  der Spec, gilt in beiden Aeren gleich und ist ohne `progressToken` ein No-op.
+  Ein Client der Handshake-Aera, der bisher Log-Meldungen anzeigte, sieht sie
+  nur noch, wenn er Fortschritt anfordert.
+- **Fehlschlaege** stehen im structlog-Log (wie bisher) und im Resultat. Bei
+  `meteo_current` und `meteo_forecast` stand der Fehlschlag schon dort.
+
+### Behoben — `meteo_warnings` meldete Entwarnung, wenn die Quelle schwieg
+
+Wo die abgekuendigte Meldung der einzige Hinweis auf den Fehlschlag war, las
+sich das Resultat wie ein Befund:
+
+- Antwortete **keine einzige** PLZ-Abfrage, stand «✅ Zurzeit keine aktiven
+  Warnungen» im Resultat, darunter ein Hinweis auf fehlgeschlagene Abfragen.
+  Jetzt: «Warnungsquelle nicht erreichbar — Warnlage unbekannt, nicht
+  warnfrei», JSON mit `quelle_nicht_erreichbar: true`. Ein **Teil**ausfall
+  bleibt eine Uebersicht mit Hinweis.
+- Die Override-Quelle (`MCP_WARNINGS_API_URL`) meldete bei Nichterreichbarkeit
+  «strukturierte API lieferte 0 Eintraege». Jetzt dieselbe Meldung wie oben.
+- Ein ausgefallener opendata.swiss-Katalog fehlte kommentarlos; jetzt steht
+  ein Hinweis da (`ogd_katalog_nicht_erreichbar` im JSON).
+
+`test_meteo_warnings_app_failure_degrades` sicherte bisher genau die
+Entwarnung ab und prueft jetzt das Gegenteil.
+
+### Hinzugefuegt — die beiden Aeren am Draht gemessen
+
+`tests/test_spec_2026.py` schickt echte Anfragen durch `_build_http_app`:
+`server/discover` und `tools/call` mit `2026-07-28`-Envelope (ohne Handshake,
+ohne Session, mit `resultType`), einen widerspruechlichen Header als
+Negativkontrolle, und `initialize`, der bei `2025-11-25` deckelt — auch wenn
+der Client `2026-07-28` verlangt. Die fruehere Aussage, das Repo baue keine
+ASGI-App, durch die sich das schicken liesse, war falsch: `_build_http_app`
+gab es schon.
+
+Gegenprobe: jede neue Zusicherung einzeln neutralisiert (ein `ctx.warning`
+zurueck, Totalausfall-Zweig weg, Override-Fehlschlag verschluckt,
+OGD-Hinweis weg, Fortschritt weg, Teilausfall als Totalausfall, JSON-Marker
+weg) — jedes Mal fallen genau die zugehoerigen Tests.
+
 ### Hinzugefuegt
 
 - **Protokoll-Gate: beide Spec-Aeren gepinnt und geprueft**
