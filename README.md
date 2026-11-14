@@ -279,32 +279,56 @@ meteoswiss-mcp (MCPServer)
 | LIM-02 | `meteo_warnings` | Live warnings come from the **MeteoSwiss App-API** (`plzDetail`) — public and unauthenticated, but undocumented (mobile-app backend, not the OGD REST API). There is no nationwide endpoint, so the countrywide view aggregates one representative capital PLZ per canton (sub-regional warnings outside that PLZ may be missed — narrow with `plz`/`canton`). `MCP_WARNINGS_API_URL` overrides it once the official OGD warnings REST API ships. |
 | LIM-03 | `meteo_current` | Shows 10-min values in UTC; no automatic conversion to local time |
 
-### Responsibility matrix — snow & precipitation (delineation vs. `swiss-environment-mcp`)
+### Responsibility matrix — water, snow, precipitation & warnings (delineation vs. `swiss-environment-mcp`)
 
-To avoid duplicating **snow and precipitation** data across the portfolio,
-responsibilities are split as follows. `meteoswiss-mcp` owns atmospheric
-precipitation and weather; `swiss-environment-mcp` (SLF domain) owns snow on the
-ground and avalanche danger.
+To avoid duplicating **water, snow and precipitation** data and **warnings**
+across the portfolio, responsibilities are split as follows. `meteoswiss-mcp`
+owns atmospheric precipitation, weather and weather warnings;
+`swiss-environment-mcp` (BAFU / SLF domain) owns surface waters, snow on the
+ground, avalanche danger and the natural-hazard sources. The same matrix, with
+the columns swapped, is in the `swiss-environment-mcp` README.
+
+There is **no overlap in measured quantities**. There **is** one overlap in
+**warnings**: forest-fire danger (see the table and the measurement below).
 
 | Data | meteoswiss-mcp (MeteoSwiss) | swiss-environment-mcp (BAFU / SLF) |
 |---|---|---|
-| Precipitation amount (mm): measurement network, forecast, climate normals | ✅ `meteo_current` / `meteo_forecast` / `meteo_climate_normals` | ❌ |
+| Discharge (m³/s) | ❌ | ✅ `env_hydro_current` (LINDAS `hydro/river`) |
+| Water level (m a.s.l.) | ❌ | ✅ `env_hydro_current` (LINDAS `hydro/river` + `lake`) |
+| Water temperature (°C) | ❌ (measures air temperature) | ✅ `env_hydro_current` |
+| Bathing water quality (E.coli etc.) | ❌ | ✅ `env_bathing_water` (LINDAS `ubd0104`) |
+| Snow depth on the ground (`HS`) | ❌ | ✅ `env_snow_current` (SLF IMIS) |
+| Fresh snow 24 h (`HN_1D`) | ❌ | ✅ `env_snow_current` (SLF IMIS) |
+| Avalanche danger level | ❌ — not observed in `meteo_warnings` ¹ | ✅ `env_avalanche_bulletin` (SLF, EAWS 1–5) |
 | Snowfall as a current weather condition | ✅ `meteo_current` / `meteo_forecast` (weather code) | ❌ |
-| Weather warnings (storm, thunderstorm, heat) | ✅ `meteo_warnings` | ❌ |
-| Snow depth on the ground (`HS`) | ❌ | ✅ SLF IMIS / study-plot ¹ |
-| Fresh snow 24 h (`HN_1D`) | ❌ | ✅ SLF ¹ |
-| Avalanche danger level | ❌ | ✅ SLF avalanche bulletin ¹ |
-| Natural-hazard warnings (flood, avalanche, wildfire) | ❌ | ✅ `env_flood_warnings`, `env_hazard_*`, `env_wildfire_danger` |
+| Precipitation amount (mm): measurement network, forecast, climate normals | ✅ `meteo_current` / `meteo_forecast` / `meteo_climate_normals` | ❌ |
+| Precipitation at SLF IMIS mountain stations | (MeteoSwiss network) | ✅ only as snow-cover context, **no standalone precipitation tool** |
+| Weather warnings (storm, thunderstorm, rain, snow, frost, heat) | ✅ `meteo_warnings` (MeteoSwiss app API) | ❌ — `env_hazard_*` only point here |
+| Flood warnings | ❌ — not observed in `meteo_warnings` ¹ | ✅ `env_flood_warnings` (hydrodaten.admin.ch) |
+| Forest-fire danger | ⚠️ **overlap:** `meteo_warnings` returns the same level as a warning (`warnType` 10), but only for the PLZ queried | ✅ `env_wildfire_danger` (waldbrandgefahr.ch, BAFU) — **every** warning region |
+| Orientation across all hazards | ❌ | ✅ `env_hazard_overview` / `env_hazard_regions` — network-free routers to the rows above |
+
+¹ Neither flood nor avalanche warnings appeared in `meteo_warnings` in the two
+probes so far (2026-07-26, 2026-11-14). That they never will is **not**
+established — the code maps `warnType` 8/9, the source just did not return them.
+
+**Measured overlap, forest fire (2026-11-14, 09:23 UTC).** All 26 cantonal
+capital PLZ answered the MeteoSwiss app API (26 × HTTP 200); the only active
+warning type was forest fire: Chur 4, Altdorf 3, Glarus 2, St. Gallen 2.
+`env_wildfire_danger` at the same time: Rheintal (GR) 4, Uri 3, Glarus 2,
+St. Gallen 2 — **identical**. Both channels carry the same official level; the
+difference is coverage. Regions at level 4 that no capital lies in (Domleschg,
+Untere Surselva) only show up in `env_wildfire_danger`. The nationwide view of
+`meteo_warnings` aggregates capital PLZ only (see LIM-02), so it can miss them.
 
 **Rule:** **atmospheric precipitation** (rain/snowfall as mm) plus weather,
-forecast, warnings and climate normals belong to `meteoswiss-mcp`; snow **on the
-ground** and **avalanche** danger belong to `swiss-environment-mcp` (SLF). The SLF
-IMIS precipitation sensor is used there only as context for the snowpack and is
-never exposed as a precipitation tool, so it does not duplicate MeteoSwiss.
-
-¹ SLF/snow tools in `swiss-environment-mcp` are in preparation (Phase-1 live-probe
-completed 2026-07-19, see that repo's `docs/probe-slf.md`); the demarcation is
-fixed now so the two servers do not collide once implemented.
+forecast, **weather warnings** and climate normals belong to `meteoswiss-mcp`;
+surface waters, snow **on the ground**, **avalanche** danger and the
+**natural-hazard maps** (flood, forest fire) belong to `swiss-environment-mcp`.
+For forest fire, `meteo_warnings` answers «is there a warning **here**?» for one
+locality; «where is the danger high?» is `env_wildfire_danger`. The SLF IMIS
+precipitation sensor is never exposed as a precipitation tool there, so it does
+not duplicate MeteoSwiss.
 
 ---
 

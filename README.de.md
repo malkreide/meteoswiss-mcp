@@ -307,34 +307,59 @@ meteoswiss-mcp (MCPServer)
 | LIM-02 | `meteo_warnings` | Live-Warnungen stammen aus der **MeteoSwiss App-API** (`plzDetail`) — öffentlich und ohne Auth, aber undokumentiert (App-Backend, nicht die OGD-REST-API). Es gibt keinen landesweiten Endpoint, daher aggregiert die Schweiz-Sicht je eine Kantonshauptort-PLZ pro Kanton (sub-regionale Warnungen ausserhalb dieser PLZ können fehlen — mit `plz`/`canton` eingrenzen). `MCP_WARNINGS_API_URL` überschreibt die Quelle, sobald die offizielle OGD-Warnings-REST-API verfügbar ist. |
 | LIM-03 | `meteo_current` | Zeigt 10-min-Werte in UTC; keine automatische Umrechnung in lokale Zeit |
 
-### Zuständigkeitsmatrix — Schnee & Niederschlag (Abgrenzung zu `swiss-environment-mcp`)
+### Zuständigkeitsmatrix — Gewässer, Schnee, Niederschlag & Warnungen (Abgrenzung zu `swiss-environment-mcp`)
 
-Damit sich **Schnee- und Niederschlagsdaten** im Portfolio nicht duplizieren, sind
-die Zuständigkeiten wie folgt aufgeteilt. `meteoswiss-mcp` verantwortet den
-atmosphärischen Niederschlag und das Wetter; `swiss-environment-mcp` (SLF-Domäne)
-verantwortet Schnee am Boden und Lawinengefahr.
+Damit sich **Gewässer-, Schnee- und Niederschlagsdaten** sowie **Warnungen** im
+Portfolio nicht duplizieren, sind die Zuständigkeiten wie folgt aufgeteilt.
+`meteoswiss-mcp` verantwortet den atmosphärischen Niederschlag, das Wetter und
+die Wetterwarnungen; `swiss-environment-mcp` (BAFU-/SLF-Domäne) verantwortet die
+Oberflächengewässer, Schnee am Boden, Lawinengefahr und die
+Naturgefahren-Quellen. Dieselbe Matrix, mit vertauschten Spalten, steht im
+README von `swiss-environment-mcp`.
+
+Bei den **Messgrössen** gibt es **keine Überschneidung**. Bei den **Warnungen**
+gibt es eine: die Waldbrandgefahr (siehe Tabelle und Messung unten).
 
 | Grösse | meteoswiss-mcp (MeteoSchweiz) | swiss-environment-mcp (BAFU / SLF) |
 |---|---|---|
-| Niederschlagsmenge (mm): Messnetz, Prognose, Klimanormwerte | ✅ `meteo_current` / `meteo_forecast` / `meteo_climate_normals` | ❌ |
+| Abfluss (m³/s) | ❌ | ✅ `env_hydro_current` (LINDAS `hydro/river`) |
+| Wasserstand / Pegel (m ü. M.) | ❌ | ✅ `env_hydro_current` (LINDAS `hydro/river` + `lake`) |
+| Wassertemperatur (°C) | ❌ (misst Lufttemperatur) | ✅ `env_hydro_current` |
+| Badegewässerqualität (E.coli u. a.) | ❌ | ✅ `env_bathing_water` (LINDAS `ubd0104`) |
+| Schneehöhe am Boden (`HS`) | ❌ | ✅ `env_snow_current` (SLF IMIS) |
+| Neuschnee 24 h (`HN_1D`) | ❌ | ✅ `env_snow_current` (SLF IMIS) |
+| Lawinenwarnstufe | ❌ — in `meteo_warnings` nicht beobachtet ¹ | ✅ `env_avalanche_bulletin` (SLF, EAWS 1–5) |
 | Schneefall als aktuelle Wetterlage | ✅ `meteo_current` / `meteo_forecast` (Wettercode) | ❌ |
-| Wetterwarnungen (Sturm, Gewitter, Hitze) | ✅ `meteo_warnings` | ❌ |
-| Schneehöhe am Boden (`HS`) | ❌ | ✅ SLF IMIS / Beobachtungsfeld ¹ |
-| Neuschnee 24 h (`HN_1D`) | ❌ | ✅ SLF ¹ |
-| Lawinenwarnstufe | ❌ | ✅ SLF-Lawinenbulletin ¹ |
-| Naturgefahren-Warnungen (Hochwasser, Lawine, Waldbrand) | ❌ | ✅ `env_flood_warnings`, `env_hazard_*`, `env_wildfire_danger` |
+| Niederschlagsmenge (mm): Messnetz, Prognose, Klimanormwerte | ✅ `meteo_current` / `meteo_forecast` / `meteo_climate_normals` | ❌ |
+| Niederschlag an SLF-IMIS-Bergstationen | (MeteoSchweiz-Messnetz) | ✅ nur als Schneedecken-Kontext, **kein eigenes Niederschlags-Tool** |
+| Wetterwarnungen (Sturm, Gewitter, Regen, Schnee, Frost, Hitze) | ✅ `meteo_warnings` (MeteoSchweiz-App-API) | ❌ — `env_hazard_*` verweisen nur hierher |
+| Hochwasserwarnungen | ❌ — in `meteo_warnings` nicht beobachtet ¹ | ✅ `env_flood_warnings` (hydrodaten.admin.ch) |
+| Waldbrandgefahr | ⚠️ **Überschneidung:** `meteo_warnings` liefert dieselbe Stufe als Warnung (`warnType` 10), aber nur für die abgefragte PLZ | ✅ `env_wildfire_danger` (waldbrandgefahr.ch, BAFU) — **alle** Warnregionen |
+| Orientierung über alle Gefahren | ❌ | ✅ `env_hazard_overview` / `env_hazard_regions` — netzwerkfreie Router zu den Zeilen oben |
 
-**Regel:** **atmosphärischer Niederschlag** (Regen/Schneefall als mm) sowie Wetter,
-Prognose, Warnungen und Klimanormwerte gehören zu `meteoswiss-mcp`; Schnee **am
-Boden** und **Lawinengefahr** gehören zu `swiss-environment-mcp` (SLF). Der
-IMIS-Niederschlagssensor des SLF dient dort nur als Kontext zur Schneedecke und
-wird nie als Niederschlags-Tool exponiert — damit keine Duplikation mit
-MeteoSchweiz.
+¹ Weder Hochwasser- noch Lawinenwarnungen tauchten in den bisherigen zwei
+Messungen in `meteo_warnings` auf (2026-07-26, 2026-11-14). Dass sie dort nie
+erscheinen, ist damit **nicht** belegt — der Code bildet `warnType` 8/9 ab, die
+Quelle hat sie nur nicht geliefert.
 
-¹ SLF-/Schnee-Tools in `swiss-environment-mcp` sind in Vorbereitung
-(Phase-1-Live-Probe abgeschlossen am 2026-07-19, siehe `docs/probe-slf.md` in jenem
-Repo); die Abgrenzung wird bereits jetzt fixiert, damit die beiden Server bei der
-Umsetzung nicht kollidieren.
+**Gemessene Überschneidung Waldbrand (2026-11-14, 09:23 UTC).** Alle 26
+Kantonshauptort-PLZ haben auf der MeteoSchweiz-App-API geantwortet
+(26 × HTTP 200); einziger aktiver Warntyp war Waldbrand: Chur 4, Altdorf 3,
+Glarus 2, St. Gallen 2. `env_wildfire_danger` zur selben Zeit: Rheintal (GR) 4,
+Uri 3, Glarus 2, St. Gallen 2 — **identisch**. Beide Kanäle tragen dieselbe
+amtliche Stufe; der Unterschied ist die Abdeckung. Regionen der Stufe 4, in denen
+kein Hauptort liegt (Domleschg, Untere Surselva), erscheinen nur in
+`env_wildfire_danger`. Die Schweiz-Sicht von `meteo_warnings` aggregiert nur
+Hauptort-PLZ (siehe LIM-02) und kann sie deshalb verfehlen.
+
+**Regel:** **Atmosphärischer Niederschlag** (Regen/Schneefall als mm) sowie
+Wetter, Prognose, **Wetterwarnungen** und Klimanormwerte gehören zu
+`meteoswiss-mcp`; Oberflächengewässer, Schnee **am Boden**, **Lawinengefahr** und
+die **Naturgefahren-Karten** (Hochwasser, Waldbrand) gehören zu
+`swiss-environment-mcp`. Beim Waldbrand beantwortet `meteo_warnings` «gilt
+**hier** eine Warnung?» für einen Ort; «wo ist die Gefahr hoch?» ist
+`env_wildfire_danger`. Der IMIS-Niederschlagssensor des SLF wird dort nie als
+Niederschlags-Tool exponiert — damit keine Duplikation mit MeteoSchweiz.
 
 ---
 
