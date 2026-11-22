@@ -857,10 +857,51 @@ class AppContext:
     http: httpx.AsyncClient
 
 
+# Verbindungsaufbau 10 s statt 20 s, dafuer ein zweiter Versuch (siehe
+# `_ConnectRetryClient`): Im schlimmsten Fall wartet ein Aufruf weiterhin 20 s
+# auf die Verbindung, aber verteilt auf zwei unabhaengige Handshakes statt auf
+# einen langen. Am 16. und 20.11.2026 hingen in der Live-Suite einzelne
+# TLS-Handshakes zu open-meteo die vollen 20 s, waehrend Anfragen an dieselben
+# Hosts im selben Lauf durchgingen. Lesen, Schreiben und Pool bleiben bei 20 s.
+_HTTP_TIMEOUT = httpx.Timeout(20.0, connect=10.0)
+
+
+class _ConnectRetryClient(httpx.AsyncClient):
+    """Wiederholt eine Anfrage einmal, wenn der Verbindungsaufbau scheitert.
+
+    Nur `ConnectError` und `ConnectTimeout`: Dann ist die Anfrage beim
+    Gegenueber nie angekommen, und eine Wiederholung kann nichts doppelt
+    ausloesen. `ReadTimeout` bleibt aussen vor, weil die Anfrage dort schon
+    angekommen sein kann. Und eine HTTP-Antwort wird nie wiederholt: Ein 429
+    oder 503 ist eine Auskunft der Quelle, kein Aussetzer — wer sie
+    wegwiederholt, sieht sie nicht mehr.
+
+    Warum hier und nicht mit `httpx.AsyncHTTPTransport(retries=1)`: Ein eigener
+    `transport=` schaltet in httpx die Proxy-Erkennung aus der Umgebung ab
+    (`allow_env_proxies = trust_env and transport is None`). Jede Installation
+    hinter `HTTPS_PROXY` haette danach still keine Verbindung mehr.
+    `test_proxy_aus_der_umgebung_bleibt_erhalten` haelt das fest. `send` ist
+    oeffentliche API und liegt unter jedem `get`.
+    """
+
+    async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
+        try:
+            return await super().send(request, **kwargs)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            # Sichtbar lassen: Ein gelungener zweiter Versuch verschwaende sonst
+            # spurlos, und wie oft der Netzweg hakt, waere nicht mehr messbar.
+            logger.warning(
+                "upstream_retry",
+                host=request.url.host,
+                error_type=exc.__class__.__name__,
+            )
+            return await super().send(request, **kwargs)
+
+
 def _build_http_client() -> httpx.AsyncClient:
     """Erstellt einen httpx.AsyncClient mit Allow-List-Validation + sicheren Defaults."""
-    return httpx.AsyncClient(
-        timeout=20.0,
+    return _ConnectRetryClient(
+        timeout=_HTTP_TIMEOUT,
         follow_redirects=True,
         event_hooks={"request": [_validate_request_hook]},
     )
