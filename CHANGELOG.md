@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Ein haengender Verbindungsaufbau wird einmal wiederholt.** Am 16. und
+  20.11.2026 war die Live-Suite rot, weil einzelne TLS-Handshakes zu open-meteo
+  die vollen 20 s hingen, waehrend Anfragen an dieselben Hosts daneben
+  durchgingen; Nutzende sahen dabei «Fehler beim Geokodieren von 'Zürich':
+  ConnectTimeout». Jetzt gilt fuer den Verbindungsaufbau 10 s statt 20 s, dafuer
+  mit einem zweiten Versuch — die Wartezeit im schlimmsten Fall bleibt gleich.
+  Wiederholt wird nur `ConnectError` und `ConnectTimeout`, also was die Quelle
+  nie erreicht hat; ein `ReadTimeout` oder eine HTTP-Antwort wie 429 oder 503
+  nicht. Jede Wiederholung erscheint als `upstream_retry` im Log.
+  Proxy-Einstellungen aus der Umgebung (`HTTPS_PROXY`) gelten unveraendert.
+
 ## [0.7.0] - 2026-09-27
 
 Der Server spricht Spec `2026-07-28` nativ: moderne Clients erreichen ihn ohne
