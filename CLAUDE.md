@@ -290,6 +290,44 @@ Die Kosten der Ableitung sind gemessen: ein Arbeitstag, an dem der PR-Text den
 falschen Namen trug und in den Einstellungen nach einer Zeichenfolge gesucht
 wurde, die dort nicht steht.
 
+## Ein Codex-Ergebnis lesen
+
+Kein Gate und keine Pflicht: Dieses Repo hat keinen `codex-gate`-Workflow, und
+die Regel dazu ist am 23.9.2026 bewusst gefallen (`90123a8`). Codex prüft PRs
+hier trotzdem, ausgelöst beim Umschalten von Draft auf «ready». Was dabei
+herauskam, steht so:
+
+- **An einem Ort: ein Issue-Kommentar** hinter dem Marker
+  `<!-- codex-pull-request-review-summary -->`, also über `get_comments`, nicht
+  `get_reviews`. Er wird an Ort und Stelle editiert, erst «🔄 Running», dann
+  «✅ Completed». Früh gelesen ist er noch kein Ergebnis; früher zitiert kann er
+  überholt sein.
+- **Seit spätestens 22.11.2026 (#88) mit maschinenlesbarem Block**; am 9.9.
+  (#76) fehlte er noch:
+
+  ```
+  <!-- codex-review-state:v1 {"code_review":{"commit_sha":"2929864…",
+    "has_any_findings":false,"has_unresolved_findings":false,
+    "status":"completed"},"security_review":{… alles null}} -->
+  ```
+
+  Geprüft und befundlos ist ein PR, wenn `status` auf `completed` steht,
+  `commit_sha` der gemergte Head ist und `has_any_findings` auf `false`. Vorher
+  liess sich «ohne Befund» nur aus dem Fehlen weiterer Kommentare erschliessen;
+  jetzt sagt Codex es selbst.
+- **Wie der Block bei einem Befund aussieht, ist ungemessen.** Alle
+  beobachteten Läufe (#74, #75, #76, #88) waren befundlos. Befunde kamen im
+  August als eigenes Review-Objekt («💡 Codex Review»); `get_reviews` und
+  `get_review_comments` deshalb mitabfragen.
+- **Die angekündigten Reaktionen sind keine Quelle.** Der Infokasten verspricht
+  👀 während des Laufs und 👍 beim befundlosen Abschluss. Getragen hat der
+  Kommentar bei keiner Abfrage eine, zuletzt am 22.11.
+
+**Die Zeit:** Von «ready» bis zum Ergebnis vergingen 99, 84, 85 und 59 Sekunden
+(#74, #75, #76, #88). Alle vier wurden vorher gemergt, #88 eine Sekunde nach
+«ready». Das Ergebnis kommt dann nachträglich auf dem gemergten Commit, und ein
+Befund braucht einen Nachfolge-PR statt einer Korrektur davor.
+
 ## Wenn zwei Agenten dasselbe tun
 
 Vor dem Anlegen eines Branches mit vorgegebenem Namen prüfen, ob es ihn schon
