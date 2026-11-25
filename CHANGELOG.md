@@ -20,6 +20,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nicht. Jede Wiederholung erscheint als `upstream_retry` im Log.
   Proxy-Einstellungen aus der Umgebung (`HTTPS_PROXY`) gelten unveraendert.
 
+### Release-Weg
+
+- **Die veroeffentlichte Version kommt aus `pyproject.toml`, nicht mehr aus dem
+  Tag-Namen.** `publish.yml` rechnete bisher `${GITHUB_REF_NAME#v}` und strich
+  damit nur ein kleines `v`. In `swiss-environment-mcp` ergab dieselbe Zeile am
+  22.11.2026 mit dem Tag `V0.7.1` einen Registry-Eintrag `V0.7.1`, den die MCP
+  Registry nie als «latest» fuehrte. Jetzt prueft `scripts/release_version.py`
+  im Build-Job, vor allem anderen: ein `v` oder `V` wird entfernt, der Rest
+  muss exakt `pyproject.toml` entsprechen und `X.Y.Z` sein.
+- **Handstart von `publish.yml`, nur auf `main`, ohne Build und PyPI:**
+  `action: publish` reicht den Registry-Eintrag fuer eine Version nach, die
+  schon auf PyPI liegt; `action: set-status` setzt den Status genau einer
+  Registry-Version (`deleted`/`deprecated`/`active`). Die aktuelle Version aus
+  `pyproject.toml` laesst sich nicht verstecken.
+- **Neu: `draft-release.yml`** legt einen Release-Entwurf mit Tag `v<version>`
+  und dem CHANGELOG-Abschnitt als Text an. Veroeffentlichen bleibt ein Klick
+  eines Menschen. Die Versionseingabe erreicht das Skript nur ueber `env`.
+
 ## [0.7.0] - 2026-09-27
 
 Der Server spricht Spec `2026-07-28` nativ: moderne Clients erreichen ihn ohne

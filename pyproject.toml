@@ -43,6 +43,9 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=5.0.0",
+    # Liest die Workflows für tests/test_release_version.py & Co. Spanne statt
+    # Pin: Ob gültiges YAML parst, ändert kein Minor-Update.
+    "pyyaml>=6.0",
     "respx>=0.21.0",
     "ruff==0.17.3",
 ]
