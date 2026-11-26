@@ -23,7 +23,9 @@ sich. Ein Client muss nichts neu freigeben.
 **Was sich im Repo geaendert hat:**
 - Die veroeffentlichte Version kommt aus `pyproject.toml`, nicht mehr aus dem
   Tag-Namen; ein Tag, der nicht passt, bricht vor dem Build ab. v0.7.1 ist der
-  erste Release ueber diesen Weg und ueber das neue `draft-release.yml`.
+  erste Release ueber diesen Weg. (Korrigiert am 26.11.2026: Hier stand auch
+  «ueber das neue `draft-release.yml`». Der Entwurf entstand aber im
+  Release-UI; der Workflow lief nicht.)
 - Daneben: ruff 0.17.3 im `[dev]`-Extra, die Zustaendigkeitsmatrix im README
   und zwei neue Abschnitte in der CLAUDE.md.
 
