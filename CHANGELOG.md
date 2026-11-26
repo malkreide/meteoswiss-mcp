@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-26
+
+Patch-Release. **Die Tools sind unveraendert:** `tool-hashes.json` ist seit
+v0.7.0 identisch, keine Tool-Definition kommt dazu, faellt weg oder aendert
+sich. Ein Client muss nichts neu freigeben.
+
+**Was Nutzende merken:**
+- **Ein haengender Verbindungsaufbau fuehrt seltener zu einem Fehler.** Hing
+  bisher ein einzelner TLS-Handshake zu einer Quelle, endete der Aufruf nach
+  20 s mit «ConnectTimeout». Jetzt versucht der Server die Verbindung nach 10 s
+  ein zweites Mal; laenger als bisher wartet niemand. Hinter `HTTPS_PROXY`
+  aendert sich nichts.
+
+**Was sich im Repo geaendert hat:**
+- Die veroeffentlichte Version kommt aus `pyproject.toml`, nicht mehr aus dem
+  Tag-Namen; ein Tag, der nicht passt, bricht vor dem Build ab. v0.7.1 ist der
+  erste Release ueber diesen Weg und ueber das neue `draft-release.yml`.
+- Daneben: ruff 0.17.3 im `[dev]`-Extra, die Zustaendigkeitsmatrix im README
+  und zwei neue Abschnitte in der CLAUDE.md.
+
 ### Changed
 
 - **Ein haengender Verbindungsaufbau wird einmal wiederholt.** Am 16. und
