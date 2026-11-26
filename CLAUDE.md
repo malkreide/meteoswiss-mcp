@@ -422,7 +422,10 @@ lässt sich der Workflow nur von Hand auslösen.
    letzten Tags gegen `HEAD` vergleichen — welche Tools neu, entfernt, geändert:
    `git diff v<letzte> HEAD -- tool-hashes.json`. Verglichen werden die
    **committeten** Dateien; lokal nicht neu erzeugen, der Hash stimmt nur auf
-   3.13 (siehe Gates oben). Am 24.11.2026: seit `v0.7.0` unverändert.
+   3.13 (siehe Gates oben). Für v0.7.1 am 26.11.2026: seit `v0.7.0`
+   unverändert, also Patch. Die Versionsnummer geht nicht in den Hash ein —
+   der Bump auf 0.7.1 liess den Guard auf 3.13 grün (#91). Ein reiner
+   Release-Bump braucht also kein neues `tool-hashes.json`.
 4. **Nach dem Merge:** Actions → «Draft Release» starten (Version leer = aus
    `pyproject.toml`). Das legt nur einen **Entwurf** an, mit Tag `v<version>`.
    Veröffentlichen ist der unumkehrbare Klick eines Menschen; er startet
@@ -434,7 +437,8 @@ hier, sondern in `swiss-environment-mcp`: Am 22.11.2026 hiess der Tag dort
 dieselbe Zeile stand bis `v0.7.0` auch hier — und strich nur ein kleines `v`.
 PyPI bekam korrekt `0.7.1` (der Build liest `pyproject.toml`), die MCP Registry
 einen Eintrag `V0.7.1`. Weil das kein Semver ist, wurde er nie «latest»; Clients
-sahen weiter die Vorversion. Hier waren bisher alle Tags klein geschrieben —
+sahen weiter die Vorversion. Hier waren bisher alle Tags klein geschrieben
+(bis einschliesslich `v0.7.1`) —
 gut gegangen ist es, weil sich niemand vertippt hat, nicht weil etwas es
 verhindert hätte. Seither prüft `scripts/release_version.py`
 im Build-Job, bevor gebaut wird: ein `v` oder `V` wird entfernt, der Rest muss
@@ -443,6 +447,55 @@ exakt `pyproject.toml` entsprechen und `X.Y.Z` sein.
 `draft-release.yml` ruft dasselbe Skript, statt die Version per `grep` aus
 `pyproject.toml` zu lesen wie die Vorlage in `swiss-environment-mcp`: Hier steht
 `version     = "…"`, und `grep '^version = '` fände nichts.
+
+**Der erste Release über diesen Weg, gemessen: v0.7.1 am 26.11.2026.** Der
+Release entstand **nicht** über `draft-release.yml`, sondern im Release-UI —
+genau der Weg, vor dem der Absatz oben warnt. Der Tag war richtig (`v0.7.1`),
+deshalb ging alles durch:
+
+| Zeit (UTC) | Schritt |
+|---|---|
+| 03:52:43 | #91 gemergt (`8cf8a0e`) |
+| 03:57:19 | Release `v0.7.1` veröffentlicht |
+| 03:57:23–03:57:32 | Build, darin die Tag-Prüfung |
+| 03:57:40–03:58:01 | PyPI |
+| 03:58:04–03:58:10 | MCP Registry; `registry-status` übersprungen |
+
+Danach PyPI 0.7.1 mit Wheel und sdist, Registry 0.7.1 `active` und «latest».
+Mit v0.7.2 in `swiss-environment-mcp` lief es am selben Tag gleich: auch dort
+im Release-UI angelegt, letzter Lauf von `draft-release.yml` vom 20.09.2026.
+
+Was daraus folgt:
+
+- **Belegt ist live nur der gute Pfad.** Dass die Tag-Prüfung einen falschen
+  Tag abfängt, zeigen die Tests, kein echter Lauf. Sie ist der Grund, warum der
+  Weg übers UI heute keinen kaputten Registry-Eintrag mehr erzeugen kann — aber
+  ein Release mit Tippfehler endet jetzt in einem roten Build statt in einem
+  Entwurf, den man vor dem Klick korrigiert.
+- **Der UI-Weg verliert den Release-Text, den der Workflow baut.** Der Text von
+  v0.7.1 beginnt mit der Überschrift `## [0.7.1] - 2026-11-26`, die neben dem
+  Titel doppelt steht, und ihm fehlt die Fusszeile mit dem Verweis aufs
+  CHANGELOG. Das Ziel heisst `main` statt eines Commits: Der Tag entsteht auf
+  dem, was im Moment des Klicks auf `main` liegt, nicht auf dem geprüften
+  Merge-Commit. Am 26.11. war das noch derselbe; garantiert ist es nicht.
+- **Ob ein Release aus dem Workflow stammt, ist abzulesen, nicht zu erinnern.**
+  Ein Lauf in der Liste von `draft-release.yml`, Autor `github-actions[bot]`,
+  ein SHA als Ziel und ein Text ohne Überschrift — so sieht `swiss-environment-mcp`
+  `v0.7.0` aus (20.09.2026), die Positivkontrolle. `created_at` eines Release
+  taugt dafür nicht: GitHub gibt dort das Datum des Commits an, nicht das der
+  Anlage.
+
+```bash
+curl -sS "https://api.github.com/repos/<owner>/<repo>/actions/workflows/draft-release.yml/runs?per_page=3" \
+  | jq -r '.total_count, (.workflow_runs[] | .created_at)'
+curl -sS "https://api.github.com/repos/<owner>/<repo>/releases/tags/v<version>" \
+  | jq -r '.author.login, .target_commitish, (.body | split("\n")[0])'
+```
+
+Bei der Kontrolle nach v0.7.1 wurden nur die Ziele abgefragt — PyPI, Registry,
+Tag —, nicht der Weg; dass der Workflow gar nicht lief, fiel erst beim
+Schreiben dieses Abschnitts auf. Die zwei Abfragen oben gehören deshalb mit zur
+Nachkontrolle.
 
 **Ein grüner Publish-Lauf ist kein Beleg.** In `swiss-environment-mcp` waren am
 22.11.2026 alle drei Jobs grün, und die Registry führte trotzdem die
@@ -468,8 +521,8 @@ curl -sS "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.m
   `include_deleted=true` abrufbar und ist mit `active` umkehrbar. Die aktuelle
   Version aus `pyproject.toml` lässt sich nicht verstecken.
 
-Hier ist keiner der beiden Wege bisher gelaufen. In `swiss-environment-mcp`
-liefen beide, mit identischem Workflow: am 22.11.2026 das Nachreichen von
+Hier ist keiner der beiden Handstarts bisher gelaufen (Stand 26.11.2026). In
+`swiss-environment-mcp` liefen beide, mit identischem Workflow: am 22.11.2026 das Nachreichen von
 `0.7.1`, am 24.11.2026 `V0.7.1` → `deleted`.
 
 **Beim Handstart ist die Lauf-Liste die Quittung.** In `swiss-environment-mcp`
