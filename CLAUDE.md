@@ -406,9 +406,10 @@ lässt sich der Workflow nur von Hand auslösen.
 
 **Ablauf, in dieser Reihenfolge:**
 
-1. **Version an allen Stellen anheben:** `pyproject.toml`, `server.json`
-   (`version` und `packages[0].version`), die Versions-Badges in `README.md` und
-   `README.de.md`. `python scripts/check_version_sync.py` prüft genau diese.
+1. **Version an allen Stellen anheben:** `pyproject.toml` und `server.json`
+   (`version` und `packages[0].version`). `python scripts/check_version_sync.py`
+   prüft genau diese. Versions-Badges tragen die READMEs hier keine — anders als
+   in `swiss-environment-mcp`; käme eine dazu, prüfte das Skript sie mit.
    In `src/` steht keine Nummer; die Laufzeit liest sie aus den Paket-Metadaten
    und meldet lokal erst nach `pip install -e ".[dev]"` die neue.
 2. **CHANGELOG:** Aus `[Unreleased]` wird `## [X.Y.Z] - JJJJ-MM-TT` (hier mit
